@@ -45,7 +45,7 @@ Item {
   readonly property bool ownsHang:
     Quickshell.screens.length > 0 && Screen.name === Quickshell.screens[0].name
 
-  readonly property int spriteFrames: 42
+  readonly property int spriteFrames: 109
 
   // A sprite sheet played by translating one clipped Image.
   //
@@ -148,15 +148,15 @@ Item {
       mask: Region { item: sprite }   // only the creature takes clicks
 
       function arrive() { sprite.play(false) }
-      function leave()  { sprite.play(true) }
+      function leave()  { }        // the sheet ends with it already gone
       function reset()  { sprite.halt(); sprite.frame = 0 }
 
       Sprite {
         id: sprite
         sheet: Qt.resolvedUrl("assets/descend-big.png")
-        cols: 7; frameW: 236; frameH: 180; frames: root.spriteFrames; fps: 12
+        cols: 11; frameW: 208; frameH: 160; frames: root.spriteFrames; fps: 12
         height: root.hangHeight
-        width: Math.round(root.hangHeight * 236 / 180)
+        width: Math.round(root.hangHeight * 208 / 160)
         y: root.barPixels
         x: Math.round((win.width - width) * root.hangX)
         MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.trigger() }
@@ -170,13 +170,13 @@ Item {
     Sprite {
       id: small
       sheet: Qt.resolvedUrl("assets/descend.png")
-      cols: 42; frameW: 94; frameH: 72; frames: root.spriteFrames; fps: 12
+      cols: 11; frameW: 62; frameH: 48; frames: root.spriteFrames; fps: 12
       height: root.height
       width: root.width
       opacity: root.away ? 0 : 1
       Behavior on opacity { NumberAnimation { duration: 200 } }
       function arrive() { play(false) }
-      function leave()  { play(true) }
+      function leave()  { }        // the sheet ends with it already gone
       function reset()  { halt(); frame = 0 }
     }
   }
@@ -232,7 +232,7 @@ Item {
   Timer {
     id: hangTeardown
     repeat: false
-    interval: Math.round(root.spriteFrames / 12 * 1000) + 500
+    interval: 400
     onTriggered: { root.hangLive = false; root.hangPending = false }
   }
 
@@ -246,7 +246,7 @@ Item {
     } else if (root.actor) {
       root.actor.arrive()
     }
-    stayFor.interval = 5000 + Math.random()*5000
+    stayFor.interval = Math.round(root.spriteFrames / 12 * 1000) + 250
     stayFor.restart()
   }
 
@@ -277,11 +277,11 @@ Item {
     cursorShape: Qt.PointingHandCursor
     onEntered: {
       if (bar) bar.showTooltip(root, "Gremlins - click to replay the bumper")
-      if (!root.away && !root.watching) root.arrive(); else stayFor.stop()
+      if (!root.away && !root.watching) root.arrive()
     }
     onExited: {
       if (bar) bar.hideTooltip(root)
-      if (!root.away && root.watching && !stayFor.running) { stayFor.interval = 1500; stayFor.restart() }
+
     }
     onClicked: root.trigger()
   }
