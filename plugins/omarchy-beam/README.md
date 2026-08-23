@@ -102,6 +102,25 @@ talk to it.
 Not a sync tool, not a cloud drive, not a chat app. It moves files between two devices
 on one network and then gets out of the way.
 
+## Removing it
+
+```bash
+omarchy bar plugin remove io.github.mrjamesmyers.beam
+omarchy plugin disable io.github.mrjamesmyers.beam
+omarchy plugin remove io.github.mrjamesmyers.beam
+```
+
+That takes the widget off the bar, stops the helper, and deletes the clone. Beam
+also keeps a device name and a TLS certificate of its own; remove those too if you
+are done with it:
+
+```bash
+rm -rf ~/.local/state/omarchy-beam
+```
+
+Nothing else on the system is touched. Beam never wrote outside its own plugin
+directory, that state directory, and the folder you told it to save files into.
+
 ## Credits
 
 Built by [James Myers](https://github.com/mrjamesmyers). MIT licensed.

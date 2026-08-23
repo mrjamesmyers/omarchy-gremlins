@@ -103,6 +103,18 @@ Two bugs those tests caught, both of which would have shipped:
 Not a media player, not a transcoder, not a library manager. It finds screens and puts
 things on them.
 
+## Removing it
+
+```bash
+omarchy bar plugin remove io.github.mrjamesmyers.cast
+omarchy plugin disable io.github.mrjamesmyers.cast
+omarchy plugin remove io.github.mrjamesmyers.cast
+```
+
+That takes the widget off the bar, stops the helper, and deletes the clone. Cast
+keeps no state outside its own plugin directory — the media server is in memory and
+dies with the process — so there is nothing else to clean up.
+
 ## Credits
 
 Built by [James Myers](https://github.com/mrjamesmyers). MIT licensed.

@@ -114,6 +114,25 @@ layer catches `OSError` to mean "this host did not answer" — so a missing or
 badly-permissioned key file was being reported as *"no UniFi API found at
 192.168.1.1"*, sending people to debug their network instead of their key.
 
+## Removing it
+
+```bash
+omarchy bar plugin remove io.github.mrjamesmyers.unifi
+omarchy plugin disable io.github.mrjamesmyers.unifi
+omarchy plugin remove io.github.mrjamesmyers.unifi
+```
+
+That takes the widget off the bar, stops the helper, and deletes the clone. Two
+things live outside the plugin directory, both created by you or on your behalf:
+
+```bash
+rm -rf ~/.local/state/omarchy-unifi     # the pinned certificate
+rm -f  ~/.config/omarchy/unifi.key      # your API key, if you want it gone
+```
+
+Revoke the key in the UniFi console as well if you are finished with it. Nothing
+else on the system is touched.
+
 ## Credits
 
 Built by [James Myers](https://github.com/mrjamesmyers). MIT licensed.

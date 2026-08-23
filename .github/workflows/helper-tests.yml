@@ -1,0 +1,96 @@
+name: Helper tests
+
+# The plugins are QML plus one standard-library Python helper each. The QML
+# needs a compositor and cannot run here; the helpers are the half that carries
+# the protocol work, and they are fully testable on a bare runner.
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "plugins/**"
+      - ".github/workflows/helper-tests.yml"
+  pull_request:
+    paths:
+      - "plugins/**"
+      - ".github/workflows/helper-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# The Beam suite binds fixed ports (53517 and 53518) so it can run a node
+# without fighting a real LocalSend for 53317. Two jobs on the same self-hosted
+# runner would collide on those, so runs are serialised per ref.
+concurrency:
+  group: helper-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  helpers:
+    name: ${{ matrix.plugin }}
+    runs-on: self-hosted
+
+    # A self-hosted runner executes whatever the workflow says on hardware you
+    # own. On a public repository a pull request from a fork could otherwise
+    # run arbitrary code there, so fork PRs are skipped: they still get review,
+    # they just do not get your machine.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+
+    strategy:
+      fail-fast: false
+      matrix:
+        plugin: [omarchy-beam, omarchy-cast, omarchy-unifi]
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Report the toolchain
+        run: |
+          set -euo pipefail
+          echo "runner:  $(uname -srm)"
+          echo "python:  $(python3 --version)"
+          echo "openssl: $(openssl version)"
+
+      - name: Verify the manifest
+        run: |
+          set -euo pipefail
+          python3 - "plugins/${{ matrix.plugin }}" <<'PY'
+          import json, os, sys
+          base = sys.argv[1]
+          manifest = json.load(open(os.path.join(base, "manifest.json")))
+          for field in ("schemaVersion", "id", "name", "version", "kinds", "entryPoints"):
+              assert field in manifest, "manifest is missing %s" % field
+          for kind, entry in manifest["entryPoints"].items():
+              path = os.path.join(base, entry)
+              assert os.path.exists(path), "%s entry point %s does not exist" % (kind, entry)
+          assert not manifest["id"].startswith("omarchy."), \
+              "the omarchy.* namespace is reserved for first-party plugins"
+          print("%s %s - manifest ok" % (manifest["name"], manifest["version"]))
+          PY
+
+      - name: Byte-compile the helper
+        run: python3 -m compileall -q "plugins/${{ matrix.plugin }}/helper"
+
+      - name: Run the helper tests
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          suites=(plugins/${{ matrix.plugin }}/helper/test_*.py)
+          if [ ${#suites[@]} -eq 0 ]; then
+            echo "no test suite for ${{ matrix.plugin }}" >&2
+            exit 1
+          fi
+          for suite in "${suites[@]}"; do
+            echo "::group::$suite"
+            python3 "$suite"
+            echo "::endgroup::"
+          done
+
+      - name: Clean up bytecode
+        if: always()
+        run: find plugins -name __pycache__ -type d -prune -exec rm -rf {} + || true
