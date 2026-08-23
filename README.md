@@ -75,6 +75,23 @@ Inline on the plugin entry in `~/.config/omarchy/shell.json`:
 **Bring your own bumper.** Point `source` at any video file. The gremlins are the default,
 not the product — the product is the shape.
 
+## Loop mode — the live wallpaper
+
+DHH, on the same thread: *"if you want something that runs all the time, you select that
+yourself."* So it's opt-in, and it isn't the bumper on repeat — that would be a gremlin
+screaming at you every three seconds. It's a separate ambient loop: the same two gremlins
+wandering a dark field hauling crumbs, seamless, silent, 343 KB.
+
+```bash
+omarchy-shell shell summon io.github.mrjamesmyers.gremlins '{"source":"file:///home/YOU/.config/omarchy/plugins/io.github.mrjamesmyers.gremlins/assets/loop.mp4","loop":true,"sound":false}'
+```
+
+Dismiss it with `omarchy-shell shell hide io.github.mrjamesmyers.gremlins`, `Esc`, or a click.
+
+**This costs GPU for as long as it runs.** It's encoded cheaply — 24 fps, CRF 27, no audio —
+because it's dark and slow and compresses well, but a loop is still a loop. On a laptop on
+battery, don't.
+
 ## The wallpapers
 
 Two backgrounds ship in `assets/`, built to stay out of your way: near-black, wide open
