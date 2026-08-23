@@ -45,14 +45,18 @@ Item {
   // 32 the wrist, 34-60 fingers, 62+ the head. -31 puts row 62 (the head's
   // crown) exactly at the bar's lower edge, so the creature hangs flush with
   // the bar and everything above - hands and arms - is simply never drawn.
-  readonly property int  spriteTopY: (settings && settings.spriteTopY) !== undefined ? settings.spriteTopY : -31
+  // Extra pixels below the bar, so the whole grin clears it. Separate from
+  // spriteTopY on purpose: spriteTopY decides WHICH rows get drawn, this
+  // decides WHERE they land, so nudging it down can't re-introduce the hands.
+  readonly property int  hangDrop: (settings && settings.hangDrop) !== undefined ? settings.hangDrop : 18
+  readonly property int  spriteTopY: (settings && settings.spriteTopY) !== undefined ? settings.spriteTopY : -4
 
   // The bar is instantiated once per monitor, so without this every instance
   // spawns its own hanging window and they stack invisibly.
   readonly property bool ownsHang:
     Quickshell.screens.length > 0 && Screen.name === Quickshell.screens[0].name
 
-  readonly property int spriteFrames: 75
+  readonly property int spriteFrames: 92
 
   // A sprite sheet played by translating one clipped Image.
   //
@@ -165,9 +169,9 @@ Item {
       id: hangRoot
       property alias sprite: bodySprite
 
-      function arrive() { hangRoot.frameIdx = 0; hangRoot.playing = true; clock.restart() }
+      function arrive() { hangRoot.frameIdx = 0; hangRoot.held = false; grinHold.stop(); hangRoot.playing = true; clock.restart() }
       function leave()  { }        // the sheet ends with it already gone
-      function reset()  { clock.stop(); hangRoot.playing = false; hangRoot.frameIdx = 0 }
+      function reset()  { clock.stop(); grinHold.stop(); hangRoot.held = false; hangRoot.playing = false; hangRoot.frameIdx = 0 }
 
       // The parent Item owns the frame counter. Binding one window's sprite to
       // an id inside ANOTHER PanelWindow does not track - each window is its own
@@ -175,10 +179,16 @@ Item {
       // silently, with no warning. Both slices read from here instead.
       property int  frameIdx: 0
       property bool playing: false
-      readonly property int  fadeFrames: 6
-      readonly property real fadeOpacity:
-        (playing && frameIdx > root.spriteFrames - fadeFrames)
-          ? Math.max(0, (root.spriteFrames - frameIdx) / fadeFrames) : 1
+      // No fade. The sheet now carries the full retreat - the creature climbs
+      // back up and out of frame under its own power, and the hands-only tail
+      // frames draw nothing because only rows below the bar are ever rendered.
+      // A fade was only ever compensating for cutting the animation short.
+
+      // The grin lands at sheet frames 71-79. Without a deliberate pause it
+      // flashes past in three quarters of a second and nobody sees it.
+      readonly property int holdFrame: (root.settings && root.settings.holdFrame) || 74
+      readonly property int holdMs:    (root.settings && root.settings.holdMs)    || 1800
+      property bool held: false
 
       Timer {
         id: clock
@@ -188,8 +198,14 @@ Item {
         onTriggered: {
           if (hangRoot.frameIdx + 1 >= root.spriteFrames) { clock.stop(); hangRoot.playing = false; return }
           hangRoot.frameIdx += 1
+          if (!hangRoot.held && hangRoot.frameIdx === hangRoot.holdFrame) {
+            hangRoot.held = true
+            clock.stop()
+            grinHold.start()
+          }
         }
       }
+      Timer { id: grinHold; repeat: false; interval: hangRoot.holdMs; onTriggered: clock.start() }
 
       readonly property real k: root.hangHeight / 160
       readonly property int  spriteW: Math.round(247 * k)
@@ -216,13 +232,12 @@ Item {
           cols: 10; frameW: 247; frameH: 160; frames: root.spriteFrames; fps: 12
           k: hangRoot.k
           frame: hangRoot.frameIdx
-          opacity: hangRoot.fadeOpacity
           srcTop: hangRoot.bodyTopRow
           srcRows: 160 - hangRoot.bodyTopRow
           width: hangRoot.spriteW
           height: Math.round((160 - hangRoot.bodyTopRow) * hangRoot.k)
           x: Math.round((bodyWin.width - hangRoot.spriteW) * root.hangX)
-          y: root.barPixels
+          y: root.barPixels + root.hangDrop
           MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.trigger() }
         }
       }
@@ -312,7 +327,7 @@ Item {
     } else if (root.actor) {
       root.actor.arrive()
     }
-    stayFor.interval = Math.round(root.spriteFrames / 12 * 1000) + 250
+    stayFor.interval = Math.round(root.spriteFrames / 12 * 1000) + 2400
     stayFor.restart()
   }
 

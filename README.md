@@ -87,7 +87,8 @@ Inline on the plugin entry in `~/.config/omarchy/shell.json`:
 | `style` | `"hang"` | `"hang"` — big, below the bar, over the wallpaper. `"descend"` — same animation, small, inside the bar cell. `"peek"` — hooks its head over the bar's edge |
 | `hangHeight` | `190` | How tall it is, in px, in `hang` mode |
 | `hangX` | `0.74` | Where along the screen it hangs, 0 = left, 1 = right |
-| `gripOverlap` | `26` | How far it reaches up over the bar, so its fingers grip the bar itself |
+| `hangDrop` | `18` | Pixels below the bar, so the whole grin clears it |
+| `holdMs` | `1800` | How long it holds the grin |
 | `peekMinSeconds` | `45` | Shortest gap between appearances |
 | `peekMaxSeconds` | `120` | Longest gap between appearances |
 
