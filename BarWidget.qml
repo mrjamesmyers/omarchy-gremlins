@@ -87,18 +87,11 @@ Item {
     onEntered: if (bar) bar.showTooltip(root, "Gremlins — click to replay the bumper")
     onExited:  if (bar) bar.hideTooltip(root)
 
-    // The shell's IPC contract exposes summon/hide/rescanPlugins/listPlugins/
-    // putBarWidget. There is NO toggle method - an earlier version called one and
-    // failed silently, because bar.run() is fire-and-forget and swallows the error.
-    onClicked: {
-      if (!bar) return
-      if (root.playing) {
-        bar.run("omarchy-shell hide " + root.pluginId)
-      } else {
-        bar.run("omarchy-shell summon " + root.pluginId + " '{}'")
-      }
-      root.playing = !root.playing
-      resetPlaying.restart()
-    }
+    // Verified against /usr/bin/omarchy-shell: the usage is
+    //   omarchy-shell [-q] <target> <method> [args...]
+    // so the target "shell" is required. Earlier versions omitted it and the
+    // command was malformed every time - invisible, because bar.run() is
+    // fire-and-forget and discards stderr and the exit code.
+    onClicked: if (bar) bar.run("omarchy-shell shell toggle " + root.pluginId)
   }
 }
