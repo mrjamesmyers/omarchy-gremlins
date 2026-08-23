@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.mrjamesmyers.lens",
+  "name": "Lens",
+  "version": "0.1.0",
+  "author": "James Myers",
+  "license": "MIT",
+  "description": "The accessibility layer Omarchy does not have. A magnifier, colour-vision correction for all three dichromacies, high contrast, invert, reduce motion, a bigger cursor and a way to find it again. All of it through hyprctl, none of it needing a password.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Lens",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "zoomStep": 0.5,
+      "showWhenInactive": true,
+      "locateOnClick": true,
+      "rigidZoom": false
+    },
+    "schema": [
+      {
+        "key": "zoomStep",
+        "type": "number",
+        "label": "Zoom step",
+        "defaultValue": 0.5,
+        "description": "How far one notch of the scroll wheel moves the magnifier."
+      },
+      {
+        "key": "showWhenInactive",
+        "type": "boolean",
+        "label": "Always show in the bar",
+        "defaultValue": true,
+        "description": "Off hides the widget until something is active. On by default, because a control you cannot find is not a control."
+      },
+      {
+        "key": "locateOnClick",
+        "type": "boolean",
+        "label": "Middle-click finds the cursor",
+        "defaultValue": true,
+        "description": "Pulses a ring where the pointer is. Useful on a large or multi-monitor desktop."
+      },
+      {
+        "key": "rigidZoom",
+        "type": "boolean",
+        "label": "Rigid magnifier",
+        "defaultValue": false,
+        "description": "The magnified view follows the pointer exactly rather than drifting toward it. Steadier, but it can feel abrupt."
+      }
+    ]
+  }
+}

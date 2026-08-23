@@ -5,6 +5,7 @@ directory.
 
 | Plugin | What it closes | Registry status | Requires |
 |---|---|---|---|
+| [`omarchy-lens`](omarchy-lens/) | Accessibility — magnifier, colour vision, contrast | **1 of 1,099 is accessibility, and it does sticky keys** | `python3`, `hyprctl` |
 | [`omarchy-paper`](omarchy-paper/) | Printing — AirPrint | **nothing in 1,099 names this** | `python3`, CUPS |
 | [`omarchy-mixer`](omarchy-mixer/) | Per-app volume — Volume Mixer | **nothing in 1,099 names this** | `python3`, `pactl` |
 | [`omarchy-cast`](omarchy-cast/) | Cast media to TV | complements `hackxit.chromecast`, which mirrors instead | `python3` |
@@ -13,8 +14,14 @@ directory.
 
 The registry column matters. It was checked against the real community registry —
 1,099 plugins — *after* the first three were written, which is the wrong order and is
-recorded as such in `../ROADMAP.md`. Paper and Mixer were chosen from that data
+recorded as such in `../ROADMAP.md`. Paper, Mixer and Lens were chosen from that data
 rather than from a guess.
+
+A theme generator was planned and then **cancelled**: `jesperlugner.wallsmith` already
+extracts a palette from an image, validates contrast and writes full Omarchy theme
+files. The earlier "zero colour generation" reading was a false negative — the registry
+carries no descriptions, and no name-matching pattern was ever going to match
+"wallsmith". Checking the neighbours before building is now the rule.
 
 ## They live here for now, but they cannot ship from here
 

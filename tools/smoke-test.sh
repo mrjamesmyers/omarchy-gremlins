@@ -171,6 +171,35 @@ smoke_mixer() {
   rm -f "$out"
 }
 
+# ---------------------------------------------------------------- lens
+smoke_lens() {
+  say "${bold}Lens${off} ${dim}(accessibility)${off}"
+  local h="$root/plugins/omarchy-lens/helper/lensd.py"
+  need hyprctl || { soft "hyprctl missing - not on a Hyprland session"; return; }
+  local out; out="$(capture "$h" '{"cmd":"refresh"}')"
+
+  grep -q '"ev":"ready"' "$out" || { bad "never emitted ready"; rm -f "$out"; return; }
+
+  # Which option names does THIS Hyprland actually accept? That is the whole
+  # reason the daemon probes instead of assuming, and the answer is only
+  # knowable on a real machine.
+  local zoomkey shaderkey
+  zoomkey="$(field zoomKey ready "$out")"
+  shaderkey="$(field shaderKey ready "$out")"
+  [ -n "$zoomkey" ]   && ok "magnifier available via $zoomkey"                       || soft "no cursor-zoom option on this Hyprland"
+  [ -n "$shaderkey" ] && ok "colour filters available via $shaderkey"                       || soft "no screen-shader option on this Hyprland"
+
+  local n; n="$(ls -1 "$root/plugins/omarchy-lens/shaders"/*.frag 2>/dev/null | wc -l)"
+  [ "$n" -eq 10 ] && ok "all 10 shaders present" || bad "expected 10 shaders, found $n"
+
+  if python3 "$root/plugins/omarchy-lens/shaders/generate.py" --check >/dev/null 2>&1; then
+    ok "shaders match their generator"
+  else
+    bad "shaders have drifted from generate.py"
+  fi
+  rm -f "$out"
+}
+
 # ---------------------------------------------------------------- unifi
 smoke_unifi() {
   say "${bold}UniFi${off}"
@@ -196,7 +225,7 @@ say "${bold}Omarchy plugin smoke test${off} ${dim}- $seconds s per helper, read-
 say "${dim}$(uname -srm) | $(python3 --version 2>&1)${off}"
 say ""
 
-for name in beam cast paper mixer unifi; do
+for name in beam cast paper mixer lens unifi; do
   if [ -n "$only" ] && [ "$only" != "$name" ]; then continue; fi
   "smoke_$name"
   say ""
