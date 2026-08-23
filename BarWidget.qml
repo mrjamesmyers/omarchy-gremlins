@@ -1,8 +1,17 @@
-// Gremlins — bar widget.
+// Gremlins - bar widget.
 //
-// The gremlin that lives in your bar. Click it to replay the bumper.
-// Drawn as a silhouette in the live theme foreground colour, so it follows
-// every Omarchy theme, including ones that don't exist yet.
+// Something lives behind your bar. Most of the time you don't see it. Every
+// minute or so a pair of eyes rises into the gap, watches for a few seconds,
+// blinks, and drops away again.
+//
+// An earlier version drew a walking cartoon gremlin from primitives. It read as
+// a small boxy robot: 26px is too few pixels for a body, and it contradicted the
+// bumper, which is photoreal. Eyes work at this size, and they suit the tone.
+//
+// The asset keeps its own darkness rather than being keyed transparent - the
+// dark surround IS the slit. Its edges are alpha-vignetted so it composites onto
+// any theme: on a dark bar it disappears into the background, on a light one it
+// reads as a gap with something in it.
 
 import QtQuick
 
@@ -14,69 +23,105 @@ Item {
   property string moduleName
   property var    settings
 
-  readonly property color fg: bar ? bar.foreground : "#e6e6e6"
-  readonly property int   sz: bar ? bar.barSize : 26
+  readonly property int    sz: bar ? bar.barSize : 26
   readonly property string pluginId: "io.github.mrjamesmyers.gremlins"
 
-  // The overlay dismisses itself when the bumper ends, so the widget's idea of
-  // "playing" has to expire on its own or the next click would send hide to a
-  // surface that already left.
-  property bool playing: false
+  // How often it shows up, in seconds. Rare is the whole point - a thing that
+  // stares at you constantly is a decoration, not a scare.
+  readonly property int minGap: (settings && settings.peekMinSeconds) || 45
+  readonly property int maxGap: (settings && settings.peekMaxSeconds) || 120
 
-  Timer {
-    id: resetPlaying
-    interval: 3600
-    onTriggered: root.playing = false
+  implicitWidth:  Math.round(sz * 2.2)
+  implicitHeight: sz
+  clip: true                       // this is the slit
+
+  property bool watching: false
+  property bool away: false        // true while the bumper owns the screen
+
+  readonly property real hiddenY:  root.height + 2
+  readonly property real peekY:    Math.round(root.height * 0.16)
+
+  Image {
+    id: eyes
+    source: Qt.resolvedUrl("assets/eyes.png")
+    width: root.width
+    fillMode: Image.PreserveAspectFit
+    smooth: true
+    mipmap: true
+    x: 0
+    y: root.hiddenY
+    opacity: root.away ? 0 : 1
+
+    Behavior on y {
+      NumberAnimation { duration: root.watching ? 900 : 520
+                        easing.type: root.watching ? Easing.OutCubic : Easing.InCubic }
+    }
+    Behavior on x { NumberAnimation { duration: 420; easing.type: Easing.InOutQuad } }
+    Behavior on opacity { NumberAnimation { duration: 200 } }
+
+    // blink: squash vertically about the eyeline
+    transform: Scale {
+      id: lid
+      origin.x: eyes.width / 2
+      origin.y: eyes.height * 0.45
+      yScale: 1.0
+    }
   }
 
-  implicitWidth:  Math.round(sz * 1.1)
-  implicitHeight: sz
+  // ---- appearance cycle ----
+  Timer {
+    id: nextPeek
+    running: !root.away
+    repeat: false
+    interval: (root.minGap + Math.random() * (root.maxGap - root.minGap)) * 1000
+    onTriggered: root.startWatching()
+  }
 
-  // Theme changes are live — repaint rather than restart.
-  onFgChanged: gremlin.requestPaint()
+  Timer {
+    id: watchFor
+    repeat: false
+    onTriggered: root.stopWatching()
+  }
 
-  Canvas {
-    id: gremlin
-    anchors.centerIn: parent
-    width:  Math.round(root.sz * 0.78)
-    height: Math.round(root.sz * 0.78)
+  function startWatching() {
+    if (root.away) return
+    root.watching = true
+    eyes.y = root.peekY
+    watchFor.interval = 4000 + Math.random() * 4000
+    watchFor.restart()
+    blinkIn.restart()
+    glance.restart()
+  }
 
-    onPaint: {
-      const ctx = getContext("2d")
-      const w = width, h = height
-      ctx.reset()
-      ctx.fillStyle = root.fg
+  function stopWatching() {
+    root.watching = false
+    eyes.y = root.hiddenY
+    eyes.x = 0
+    nextPeek.interval = (root.minGap + Math.random() * (root.maxGap - root.minGap)) * 1000
+    nextPeek.restart()
+  }
 
-      // ears
-      ctx.beginPath()
-      ctx.moveTo(w * 0.20, h * 0.52)
-      ctx.lineTo(w * 0.02, h * 0.02)
-      ctx.lineTo(w * 0.46, h * 0.30)
-      ctx.closePath()
-      ctx.fill()
+  // a blink or two while it's up
+  Timer {
+    id: blinkIn
+    interval: 1400 + Math.random() * 1200
+    repeat: true
+    running: root.watching
+    onTriggered: blinkAnim.restart()
+  }
+  SequentialAnimation {
+    id: blinkAnim
+    NumberAnimation { target: lid; property: "yScale"; to: 0.06; duration: 70 }
+    NumberAnimation { target: lid; property: "yScale"; to: 1.0;  duration: 110 }
+  }
 
-      ctx.beginPath()
-      ctx.moveTo(w * 0.80, h * 0.52)
-      ctx.lineTo(w * 0.98, h * 0.02)
-      ctx.lineTo(w * 0.54, h * 0.30)
-      ctx.closePath()
-      ctx.fill()
-
-      // head
-      ctx.beginPath()
-      ctx.ellipse(w * 0.18, h * 0.32, w * 0.64, h * 0.62)
-      ctx.fill()
-
-      // eyes, punched out so the silhouette reads at 26px
-      ctx.globalCompositeOperation = "destination-out"
-      ctx.beginPath()
-      ctx.ellipse(w * 0.33, h * 0.52, w * 0.13, h * 0.17)
-      ctx.fill()
-      ctx.beginPath()
-      ctx.ellipse(w * 0.55, h * 0.52, w * 0.13, h * 0.17)
-      ctx.fill()
-      ctx.globalCompositeOperation = "source-over"
-    }
+  // and a slow glance sideways, so it isn't a static stare
+  Timer {
+    id: glance
+    interval: 2200 + Math.random() * 1800
+    repeat: true
+    running: root.watching
+    onTriggered: eyes.x = (Math.random() < 0.5 ? -1 : 1) * Math.round(root.width * 0.06)
   }
 
   MouseArea {
@@ -84,14 +129,32 @@ Item {
     hoverEnabled: true
     cursorShape: Qt.PointingHandCursor
 
-    onEntered: if (bar) bar.showTooltip(root, "Gremlins — click to replay the bumper")
-    onExited:  if (bar) bar.hideTooltip(root)
+    // lean in and it notices you
+    onEntered: {
+      if (bar) bar.showTooltip(root, "Gremlins - click to replay the bumper")
+      if (!root.away) { root.watching = true; eyes.y = root.peekY; watchFor.stop() }
+    }
+    onExited: {
+      if (bar) bar.hideTooltip(root)
+      if (!root.away && !watchFor.running) { watchFor.interval = 1200; watchFor.restart() }
+    }
 
-    // Verified against /usr/bin/omarchy-shell: the usage is
+    // Verified against /usr/bin/omarchy-shell: usage is
     //   omarchy-shell [-q] <target> <method> [args...]
-    // so the target "shell" is required. Earlier versions omitted it and the
-    // command was malformed every time - invisible, because bar.run() is
-    // fire-and-forget and discards stderr and the exit code.
-    onClicked: if (bar) bar.run("omarchy-shell shell toggle " + root.pluginId)
+    // so the "shell" target is required.
+    onClicked: {
+      if (!bar) return
+      bar.run("omarchy-shell shell toggle " + root.pluginId)
+      // it isn't behind the bar any more - it's on your screen
+      root.away = true
+      root.watching = false
+      eyes.y = root.hiddenY
+      comeBack.restart()
+    }
   }
+
+  Timer { id: comeBack; interval: 3600; onTriggered: { root.away = false; nextPeek.restart() } }
+
+  // show up shortly after login too, once the bumper has finished
+  Component.onCompleted: { nextPeek.interval = 6000; nextPeek.restart() }
 }

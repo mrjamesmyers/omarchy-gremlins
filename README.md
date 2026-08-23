@@ -24,8 +24,9 @@ shell process, so read the source before you enable anything, including this.
   desktop. Two companion backgrounds from the same world ship alongside it — gremlins
   wandering off with your pixels — so the desktop can read as the continuation of the
   animation. **You install them; the plugin never touches your wallpaper on its own.**
-- **Puts a gremlin in your bar.** Click it to replay. It's drawn in your theme's foreground
-  colour, so it follows every Omarchy theme, including ones that don't exist yet.
+- **Something lives behind your bar.** Every minute or two a pair of eyes rises into the
+  gap, watches for a few seconds, blinks, glances around, and drops away. Hover and it
+  notices you. Click to replay the bumper — and it vanishes, because it's on your screen now.
 - **Loops only if you ask.** There's a setting. It's off by default, and it should be.
 
 ## Why it's shaped like this
@@ -63,6 +64,7 @@ Measured on the shell process (Omarchy 4.0.0, Ryzen mini PC, 1920x1080 + 3840x21
 | Idle | **0.0%** |
 | Bumper playing | ~5% for three seconds |
 | Loop mode running | **4.9%** |
+| Bar widget, idle | **0.05%** |
 | After it finishes / after `hide` | **0.0%** |
 
 Back to a flat zero is the number that matters: the overlay tears its own layer surface
@@ -80,6 +82,8 @@ Inline on the plugin entry in `~/.config/omarchy/shell.json`:
 | `playOnLogin` | `true` | Play once when the shell starts |
 | `loop` | `false` | Keep playing forever. Costs GPU. Off for a reason. |
 | `sound` | `true` | The scream |
+| `peekMinSeconds` | `45` | Shortest gap between appearances |
+| `peekMaxSeconds` | `120` | Longest gap between appearances |
 
 **Bring your own bumper.** Point `source` at any video file. The gremlins are the default,
 not the product — the product is the shape.
