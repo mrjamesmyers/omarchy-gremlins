@@ -41,7 +41,10 @@ Item {
     root.opened = true
     player.stop()
     player.play()
-    guard.restart()
+    // The stall guard exists to stop a failed decode leaving a black screen.
+    // In loop mode a long playback is the POINT, so arming it there would kill
+    // the feature it is meant to protect.
+    if (root.loopForever) guard.stop(); else guard.restart()
   }
 
   function close() {
@@ -69,6 +72,7 @@ Item {
   Timer {
     id: guard
     interval: 9000
+    running: false
     onTriggered: root.close()
   }
 

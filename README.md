@@ -56,10 +56,19 @@ and mp4 carries its own audio track, so the scream needs no separate player.
 
 ## Cost
 
-The whole argument for this design is that it's cheap: three seconds of decode, then
-nothing. The overlay tears its own layer surface down when playback ends, so once the
-bumper is over there is no surface, no decoder, and no process doing work. If you turn
-loop mode on, that's on you — and it's why it's off by default.
+Measured on the shell process (Omarchy 4.0.0, Ryzen mini PC, 1920x1080 + 3840x2160):
+
+| State | Shell CPU |
+|---|---|
+| Idle | **0.0%** |
+| Bumper playing | ~5% for three seconds |
+| Loop mode running | **4.9%** |
+| After it finishes / after `hide` | **0.0%** |
+
+Back to a flat zero is the number that matters: the overlay tears its own layer surface
+down when playback ends, so afterwards there is no surface, no decoder, and nothing doing
+work. Loop mode costs that 4.9% for as long as you leave it on — which is why it's off by
+default.
 
 ## Settings
 
