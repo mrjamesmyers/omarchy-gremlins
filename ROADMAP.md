@@ -1,219 +1,200 @@
 # Closing the gap: an Omarchy plugin roadmap
 
-*Assessment and plan, August 2026. Written against Omarchy 4 "Quattro" and the
-Quickshell plugin API.*
+*Second edition, August 2026. Written against Omarchy 4 "Quattro", the Quickshell
+plugin API, and the full community registry.*
 
 ---
 
-## 1. Where the ecosystem actually is
+## 0. Correction to the first edition
 
-Quattro rebuilt the entire desktop shell as a plugin host. Bar, launcher, menus,
-notifications, OSDs, control panels, lock screen and polkit agent all live in one
-long-running Quickshell process, and third parties get the same six plugin kinds the
-first-party components use: `bar-widget`, `bar`, `panel`, `overlay`, `menu`, `service`.
-That is a genuinely good foundation, and it is nine months old.
+**The first edition of this document was wrong, and wrong in a way that invalidated its
+central claim.** It reported an ecosystem of fifteen third-party plugins and concluded
+that "fourteen of fifteen are things you look at." That number came from Okomart
+(`brianblakely/omarchy-plugins`), a small storefront — not from the community registry,
+which was unreachable from the machine this was written on.
 
-**First-party covers the desktop furniture.** Workspaces, active window, clock, weather,
-media (MPRIS), system tray, battery, keyboard layout, microphone, update indicator,
-Bluetooth device list, notifications, lock.
+The actual registry is `HANCORE-linux/omarchy-plugin-marketplace`, published at
+omarchyplugins.com. It lists **1,099 plugins across 1,097 source repositories.**
 
-**Third-party is where the interesting number is.** The main registry (Okomart) lists
-fifteen plugins:
+Three specific claims in the first edition were false. There *is* a cast plugin, there
+*is* a LocalSend plugin, and there *is* a UniFi plugin. Section 4 gives the head-to-head.
 
-> Blink · Bluetooth codec · Codex Notifications · Flight Radar · Omacal · Omadoro ·
-> OmaHUD · OmaLED · OmaNetWatch · Omanews · Omanote · Omashot · Omastonk · Peek ·
-> World Time
+Everything below is derived from `registry.json` in that repository, read directly.
 
-Read that list by category rather than by name:
+### What the registry does and does not tell you
 
-| Category | Count | Examples |
-|---|---:|---|
-| Cosmetic / window chrome | 4 | Blink, OmaHUD, OmaLED, Peek |
-| Informational tickers | 4 | Flight Radar, Omanews, Omastonk, World Time |
-| Small utilities | 5 | Omacal, Omadoro, Omanote, Omashot, Codex Notifications |
-| Hardware / device integration | **2** | Bluetooth codec, OmaNetWatch |
+It carries plugin id, repository URL, category, tags, validated commit, and security
+baseline status. It does **not** carry descriptions — those are fetched from each repo at
+site build time. So keyword analysis here runs over ids, repository slugs and tags only.
 
-Fourteen of the fifteen are things you *look at*. Almost nothing in the ecosystem
-**talks to another device.** That is not a criticism of the authors — it is a precise
-description of where the frontier is, and it is exactly where the macOS and Windows gap
-lives. Nobody misses Windows because it has a stock ticker.
-
-### An ecosystem-level defect worth fixing upstream
-
-The manifest schema has a `barWidget.schema` field: a declarative description of a
-plugin's settings, with types, labels, defaults and help text. The shell stores it and
-`BarWidgetRegistry.metadataFor()` exists to read it — **but nothing renders it.** No
-shipped panel uses the `qs.Ui` form-control set either.
-
-The consequence: every plugin that wants settings hand-builds a settings panel out of
-`qs.Ui` primitives, re-implementing keyboard navigation, cursor state and persistence
-each time. All three plugins below do exactly that, because there is no alternative.
-
-**Recommendation: contribute the schema renderer upstream.** It is a bounded piece of
-work against an API that already exists, it deletes a few hundred lines from every
-plugin that has settings, and it is the single highest-leverage contribution available
-to the plugin ecosystem right now. Worth doing before writing plugin number four.
+Omarchy repos are conventionally named `omarchy-<thing>`, which makes that a good signal,
+but it is not a perfect one: a plugin with an oblique name will be missed. Treat "empty"
+below as *"nothing in 1,099 entries names this,"* not as proof of absence.
 
 ---
 
-## 2. The three questions, answered
+## 1. What 1,099 plugins actually cover
 
-**Is there a plugin for casting to a big-screen TV?** No. Nothing in the registry, and
-nothing first-party. The Linux tooling that exists (`catt`, `mkchromecast`, Cast to TV
-for GNOME) is either a Python package you must install yourself or tied to a desktop
-Omarchy does not run. → **Built. See `plugins/omarchy-cast`.**
+By the registry's own categories:
 
-**Is there an AirDrop feature?** No. Not in the registry, not first-party, and no
-Wayland desktop has one. → **Built. See `plugins/omarchy-beam`.**
+| Category | Count | Share |
+|---|---:|---:|
+| Widgets | 382 | 35% |
+| Productivity | 210 | 19% |
+| System | 141 | 13% |
+| Developer Tools | 87 | 8% |
+| Appearance | 84 | 8% |
+| Hardware | 84 | 8% |
+| Desktop | 80 | 7% |
+| Other | 31 | 3% |
 
-**Is there a UniFi / Ubiquiti plugin?** No. OmaNetWatch does HTTP/TCP endpoint
-monitoring, which is a different thing. → **Built. See `plugins/omarchy-unifi`.**
+And by what the names actually cluster on — the most frequent meaningful tokens across
+plugin ids and repository slugs:
 
----
+> workspaces **29** · monitor **28** · usage **24** · wallpaper **20** · lock **20** ·
+> control **19** · keyboard **18** · clock **17** · calendar **16** · theme **15** ·
+> vpn **15** · window **15** · dock **14** · terminal **11** · pomodoro **10**
 
-## 3. The gap map
+The shape is clear and it is not a criticism: this is a **young, enthusiastic ecosystem
+building desktop furniture and system telemetry.** Sixty-seven plugins touch workspaces.
+Forty-six touch usage or activity tracking. Twenty-two touch VPNs. Twenty-one touch
+displays.
 
-Every row is a thing a Mac or Windows user has and an Omarchy user does not. Scored on
-**value** (how often it bites, how loudly people complain) and **feasibility** (can it
-be a plugin at all, and what does it need on the box).
-
-### Tier 1 — Continuity: one device talking to another
-
-This is the whole gap. It is where Apple spent fifteen years and where Linux has spent
-almost none.
-
-| Gap | Mac / Windows | Omarchy today | Recommendation | Value | Feasibility |
-|---|---|---|---|:---:|:---:|
-| **File transfer to phones** | AirDrop / Nearby Share | nothing | Speak **LocalSend** — real clients already on iOS, Android, macOS, Windows | ★★★★★ | ★★★★★ |
-| **Cast to television** | AirPlay / Cast / Miracast | nothing | **Google Cast protocol** natively + DLNA for the rest | ★★★★★ | ★★★★☆ |
-| **Phone bridge** — notifications, SMS, calls, remote input | iPhone Mirroring / Phone Link | nothing | Front-end **KDE Connect**'s D-Bus API; the daemon is mature and has iOS and Android apps. A bar widget for battery, notifications, "find my phone", send-to-phone | ★★★★★ | ★★★★☆ |
-| **Universal clipboard** | Handoff | nothing | Falls out of the KDE Connect bridge for free | ★★★★☆ | ★★★★☆ |
-| **Phone as webcam** | Continuity Camera | nothing | `v4l2loopback` + KDE Connect or DroidCam. Needs a **kernel module**, so it cannot be a pure plugin | ★★★☆☆ | ★★☆☆☆ |
-| **Tablet as second screen** | Sidecar | nothing | Hard on Wayland. Park it | ★★☆☆☆ | ★☆☆☆☆ |
-
-### Tier 2 — Files: finding things and not losing them
-
-| Gap | Mac / Windows | Omarchy today | Recommendation | Value | Feasibility |
-|---|---|---|---|:---:|:---:|
-| **Quick Look** — spacebar preview | Quick Look | nothing | An `overlay` plugin plus `omarchy-glance <path>`, bound in the launcher and file manager. Omarchy's Qt already ships **PDF and SVG image plugins** and `qt6-multimedia`, so images, PDFs, video, audio and syntax-highlighted text are all reachable **with zero new dependencies** | ★★★★★ | ★★★★★ |
-| **Content search** | Spotlight / Windows Search | launcher finds files by *name* | A panel over `ripgrep` + `fd`, both already present. Full indexing (`tracker`, `recoll`) is a second phase | ★★★★☆ | ★★★★☆ |
-| **Versioned backup** | Time Machine / File History | **nothing** | `restic` to a user-owned destination — needs no sudo — plus a snapshot browser. On btrfs installs, `snapper` integration | ★★★★★ | ★★★☆☆ |
-| **Cloud drives** | iCloud / OneDrive | nothing | `rclone mount` manager: mount state, sync status, a bar indicator | ★★★☆☆ | ★★★★☆ |
-| **Trash and undo-delete** | Bin / Recycle Bin | `gio trash` exists, no UI | Small panel. Cheap win | ★★☆☆☆ | ★★★★★ |
-
-### Tier 3 — Input
-
-| Gap | Mac / Windows | Omarchy today | Recommendation | Value | Feasibility |
-|---|---|---|---|:---:|:---:|
-| **Dictation** | Dictation / Win+H | **nothing** | Hotkey → record → **`whisper.cpp` locally** → type via `wtype`. Entirely offline, and a genuinely better product than either incumbent because nothing leaves the machine. Needs a model download, so it must degrade honestly on first run | ★★★★★ | ★★★☆☆ |
-| **Text replacement / snippets** | system-wide | nothing | Front-end `espanso` | ★★★☆☆ | ★★★★☆ |
-| **Clipboard history** | Win+V | third-party (omaclip) | Covered well enough | ★★☆☆☆ | — |
-| **Emoji / character picker** | Ctrl+Cmd+Space | in the launcher | Covered | ★☆☆☆☆ | — |
-
-### Tier 4 — Hardware
-
-| Gap | Mac / Windows | Omarchy today | Recommendation | Value | Feasibility |
-|---|---|---|---|:---:|:---:|
-| **Printers** | AirPrint, zero setup | CUPS, no UI | mDNS `_ipp._tcp` discovery + driverless IPP Everywhere setup. "It found my printer" is a moment that sells an OS | ★★★★☆ | ★★★☆☆ |
-| **Scanners** | Image Capture | nothing | SANE front-end | ★★☆☆☆ | ★★★☆☆ |
-| **Per-app audio routing** | Windows volume mixer | `pavucontrol` | Bar panel over PipeWire | ★★★☆☆ | ★★★★☆ |
-| **Battery health** | detailed | basic | `upower` detail panel: cycles, design capacity, wear | ★★☆☆☆ | ★★★★★ |
-| **Bluetooth file transfer** | OBEX | nothing | Beam covers the real use case better | ★☆☆☆☆ | — |
-
-### Tier 5 — Network and home
-
-| Gap | Mac / Windows | Omarchy today | Recommendation | Value | Feasibility |
-|---|---|---|---|:---:|:---:|
-| **VPN / mesh status** | native UI | nothing | **Tailscale** bar widget: connection state, exit-node picker, peer list, MagicDNS. `tailscale status --json` is a clean, stable interface. Lowest-effort high-value item on this page | ★★★★☆ | ★★★★★ |
-| **Network gear** | vendor apps | nothing | UniFi — done | ★★★☆☆ | ★★★★☆ |
-| **Home automation** | Home / Alexa | nothing | Home Assistant REST: scenes and lights in the bar | ★★★☆☆ | ★★★★☆ |
-
-### Tier 6 — Attention and security
-
-| Gap | Mac / Windows | Omarchy today | Recommendation | Value | Feasibility |
-|---|---|---|---|:---:|:---:|
-| **Focus modes** | scheduled, per-app | DND toggle | Scheduled profiles, per-app notification rules | ★★★☆☆ | ★★★★☆ |
-| **Screen time** | usage reports | nothing | Hyprland window events → daily report | ★★★☆☆ | ★★★★☆ |
-| **Credential manager** | Keychain / Hello | `gnome-keyring`, no UI | Secrets browser | ★★★☆☆ | ★★★☆☆ |
+The first edition's instinct — that device integration is the thin part — survives the
+correction, but weakly and with exceptions. Continuity is genuinely covered now: six
+phone-bridge plugins, five Quick Look plugins, six dictation plugins. What is thin is
+narrower and more specific, and section 3 names it.
 
 ---
 
-## 4. What to build, in what order
+## 2. Method
 
-Ranked by value × feasibility, with the three that already exist struck through.
+Forty-two capabilities that a macOS or Windows user has out of the box were each tested
+against all 1,099 entries, then every "empty" result was re-validated against the raw
+registry text rather than the parsed fields, to catch keywords hiding in a field the
+parser skipped.
 
-| # | Plugin | Closes | Effort | Status |
+A capability is **empty** when nothing in 1,099 entries names it, and **thin** when one
+or two do.
+
+---
+
+## 3. The gaps, after correction
+
+### Confirmed empty — nothing in 1,099 names these
+
+| Gap | Elsewhere | Why it matters | Recommendation |
+|---|---|---|---|
+| **Printing** | AirPrint | Zero printer plugins. Not one. "It found my printer" is a moment that sells an operating system, and it is the single most common reason a new Linux user goes back | mDNS `_ipp._tcp` discovery plus driverless IPP Everywhere setup via `lpadmin`, queue state via `lpstat` |
+| **Per-app audio routing** | Volume Mixer | Zero. Every Windows user expects to turn one app down without turning the others down | PipeWire via `pw-dump` and `wpctl` — per-app volume, mute, and output routing |
+| **Text expansion** | Text Replacement | Zero. System-wide snippets on both other platforms | Front-end `espanso`, or a small `wtype`-based expander |
+| **Trash / undo delete** | Bin, Recycle Bin | Zero. `gio trash` exists and nothing surfaces it | A panel over `gio trash` with restore |
+| **Disk encryption status** | FileVault, BitLocker | Zero. Most Omarchy installs are LUKS and nothing shows it | `cryptsetup status` in a panel; read-only |
+| **Speed test** | — | Zero listed, and **DHH publicly demoed a personal one**. Clear demand, no listing | `librespeed-cli` or `speedtest-cli` in the bar |
+| **Scanning** | Image Capture | Zero real scanner plugins (two false hits) | SANE front-end |
+| **Miracast** | AirPlay mirroring | Zero. The one screen-mirroring plugin drives Chromium, not Miracast | `gnome-network-displays` front-end, or park it |
+
+### Thin — one or two exist, room for a better one
+
+| Gap | Exists | Assessment |
+|---|---|---|
+| Versioned backup | 2 | `restic` and `snapshots` plugins exist. A Time-Machine-grade browser is still open |
+| Wi-Fi picker | 1 | Surprisingly thin for something used daily |
+| Firewall | 1 | `ufw` control is barely represented |
+| Bluetooth file send | 1 | OBEX largely unaddressed, though Beam covers the real use case better |
+| Screenshot + annotate | 2 | Annotation specifically is weak |
+| Mic / camera privacy indicator | 1 | A genuine security affordance both other platforms ship |
+
+### Well covered — do not build these
+
+Workspaces (67), display management (21), VPN (22), screen-time and usage (46), focus
+and DND (10), credential managers (9), phone bridges (6), Quick Look (5), dictation (6),
+cloud drives (5), content search (5), night light (5), window overview (6).
+
+**The first edition recommended Quick Look, Tailscale and dictation as the next three
+builds. All three are already occupied** — five, twenty-two and six plugins respectively.
+That recommendation is withdrawn.
+
+---
+
+## 4. Head to head: the three already built
+
+Honest assessment against what the registry actually contains.
+
+### Cast vs `hackxit.chromecast` — complementary
+
+| | `hackxit.chromecast` | **Cast** |
+|---|---|---|
+| Approach | Headless Chromium driven over CDP | Cast protocol implemented directly |
+| Casts | The desktop, mirrored | Files, URLs, DLNA |
+| Needs | Node.js, Chromium, portal stack, PipeWire | `python3` |
+| Transport controls | — | Play, pause, seek, volume |
+
+**These do not overlap.** Theirs does the one thing Cast explicitly cannot — mirror the
+screen. Cast does the things theirs explicitly cannot. Both should exist, and Cast's
+README should say so and point at it.
+
+### Beam vs `oma.nearby` — substantially duplicated
+
+Both speak LocalSend. `oma.nearby` shipped first and does **more**: clipboard text
+sharing, file-picker integration, PIN, cancellation. Beam's honest remaining edges are
+that it ships no compiled binary — pure standard library, so it runs on ARM where
+`oma.nearby`'s prebuilt x86_64 Rust binary does not — and that it accepts drag-and-drop
+onto the bar.
+
+**That is thin differentiation.** Beam is good work aimed at an occupied position.
+
+### UniFi vs `hegjon.unifi` — redundant, and mine is worse
+
+| | `hegjon.unifi` | **UniFi** |
+|---|---|---|
+| API key | **System keyring** | `0600` file |
+| Data | Integration API **plus** WAN graph endpoints | Integration API only |
+| History | 12-hour WAN rate graphs | Current values only |
+| Notifications | Device state changes | — |
+| TLS | Prompted, permissive default | **TOFU certificate pinning** |
+
+Better on four axes out of five. **The correct move is not to publish a second one** — it
+is to offer the pinning work to that project as a pull request, which is the one place
+this implementation is genuinely ahead.
+
+---
+
+## 5. Revised build order
+
+| # | Plugin | Closes | Registry status | Effort |
 |---:|---|---|---|---|
-| 1 | ~~**Beam**~~ | AirDrop | — | **shipped** |
-| 2 | ~~**Cast**~~ | AirPlay / Cast to TV | — | **shipped** |
-| 3 | ~~**UniFi**~~ | vendor network app | — | **shipped** |
-| 4 | **Glance** | Quick Look | ~2 days | next |
-| 5 | **Mesh** | Tailscale / VPN status | ~1 day | next |
-| 6 | **Dictate** | voice typing | ~3 days | next |
-| 7 | **Companion** | Phone Link / Handoff | ~4 days | phase 3 |
-| 8 | **Timeline** | Time Machine | ~4 days | phase 3 |
-| 9 | **Paper** | AirPrint | ~3 days | phase 3 |
-| 10 | **Find** | Spotlight content search | ~2 days | phase 4 |
-| — | *schema renderer* | *upstream contribution* | *~2 days* | *do this early* |
+| 1 | **Paper** | AirPrint | **empty** | ~1 day |
+| 2 | **Mixer** | Volume Mixer | **empty** | ~1 day |
+| 3 | **Cast** | media casting | complementary to 1 existing | done |
+| 4 | Vault | FileVault status | **empty** | ~half day |
+| 5 | Bin | Recycle Bin | **empty** | ~half day |
+| 6 | Expand | Text Replacement | **empty** | ~1 day |
+| — | *pinning PR to `hegjon.unifi`* | — | — | ~2 hours |
 
-**Why Glance and Mesh come next.** Glance has the best value-to-effort ratio on the
-page: Quick Look is the single most-missed macOS feature, and Omarchy's Qt already ships
-every decoder it needs, so it costs nothing on the box. Mesh is a day of work for
-something a developer audience touches several times daily.
-
-**Why Dictate is the one with the highest ceiling.** Local Whisper transcription is not
-a worse version of Apple's dictation — it is a better one, because nothing is uploaded.
-It is also the item that fits Omarchy's stated direction as an agentic desktop most
-naturally. It is third rather than first only because a model download breaks the
-no-install-hooks rule and has to be handled honestly.
+Printing and per-app audio lead because they are the only two entries that are
+simultaneously **empty in 1,099 plugins**, **present on both other platforms**, and
+**things people hit weekly**.
 
 ---
 
-## 5. Design rules these three established
+## 6. Design rules
 
-Worth keeping for the next seven.
+Unchanged by the correction, and now with a sixth earned the hard way.
 
-**Join a network, do not start one.** Beam does not invent a transfer protocol. The gap
-AirDrop leaves is not "there is no Linux file-transfer tool" — there are dozens. The gap
-is that none of them are on the other person's phone. LocalSend already has clients
-everywhere, so Beam speaks LocalSend and the phone needs nothing.
+**Join a network, do not start one.** Beam speaks LocalSend rather than inventing a
+protocol — the right instinct, applied to a position someone had already taken.
 
-**No pip, no sudo, no install hooks.** Omarchy plugins are *cloned*, not installed. A
-plugin that needs a package manager to work is a plugin most people never get working.
-All three use the Python standard library and tools already on the box.
+**No pip, no sudo, no install hooks.** Omarchy plugins are cloned, not installed.
 
-**QML for pixels, a helper for protocol.** QML cannot join a multicast group, listen on
-a port, speak a binary protocol over TLS, or stream a 4 GB file without pulling it
-through the shell's heap. Pushing that into a helper process is not just a workaround —
-it makes the interesting half **testable without a compositor**. One hundred tests run
-in this repository over real sockets and real TLS.
+**QML for pixels, a helper for protocol.** QML cannot join a multicast group or speak a
+binary protocol over TLS. Moving that to a helper makes the interesting half testable
+without a compositor — a hundred tests run here, and they caught four real bugs.
 
-**One daemon, not one per monitor.** The bar instantiates a widget per screen. Anything
-that binds a port sits behind `Loader { active: ownsDaemon }`.
+**One daemon, not one per monitor.** The bar instantiates a widget per screen.
 
-**Be honest about what does not work.** Cast lists Apple TVs greyed out and says why,
-rather than offering a button that spins forever. An honest absence beats a silent
-failure every time.
+**Be honest about what does not work.** Cast lists Apple TVs greyed out and says why.
 
-**Secrets do not go in `shell.json`.** It is a dotfile; dotfiles end up in public
-repositories. UniFi keeps its API key in a `0600` file and refuses a world-readable one.
-
----
-
-## 6. What the tests caught
-
-Four bugs, all of which would have shipped, none of which a compositor would have
-revealed:
-
-1. **Beam** — a transfer that failed its checksum left the session marked active, so
-   *every later transfer was refused* until the shell restarted.
-2. **Cast** — `stop()` revoked the media-server token *after* handing the television the
-   URL, so casting any local file 404'd: a spinner on the TV and no error anywhere.
-3. **Cast** — the read and heartbeat threads shared one TLS socket, which OpenSSL does
-   not guarantee is safe. Sessions died at random intervals.
-4. **UniFi** — `PermissionError` subclasses `OSError`, and the transport caught `OSError`
-   to mean "host did not answer", so a bad key file reported *"no UniFi API found at
-   192.168.1.1"* and sent people to debug their network instead of their key.
-
-Three of the four are the kind of bug that reproduces once a week and gets filed as
-"flaky". Testing the protocol rather than the pixels is what surfaced them.
+**Survey before you build.** Two hours reading the registry would have redirected two of
+the three plugins in the first edition. The cost of not checking was not a wasted
+afternoon — it was a recommendation set that pointed at five occupied positions.
