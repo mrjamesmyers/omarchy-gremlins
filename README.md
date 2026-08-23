@@ -66,7 +66,7 @@ Measured on the shell process (Omarchy 4.0.0, Ryzen mini PC, 1920x1080 + 3840x21
 | Idle | **0.0%** |
 | Bumper playing | ~5% for three seconds |
 | Loop mode running | **4.9%** |
-| Bar widget, idle | **0.05%** |
+| Bar widget, idle | **0.00%** |
 | After it finishes / after `hide` | **0.0%** |
 
 Back to a flat zero is the number that matters: the overlay tears its own layer surface

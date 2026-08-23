@@ -1,19 +1,20 @@
 // Gremlins - bar widget.
 //
-// Two styles, selectable via settings.style:
-//   "descend" (default) - it climbs down into the bar from above, upside down:
-//                         one hand grips, then the other, then it lowers its
-//                         body and hangs there looking at you.
-//   "peek"              - it hooks its head over the bar's edge from below.
+// Three styles, selected by settings.style. EXACTLY ONE is ever constructed:
+// each lives behind a Loader with `active:`, because `visible: false` is not
+// the same as "not built". AnimatedSprite carries a QQuickSpriteEngine with its
+// own frame timer that ticks whether or not anything is drawn - instantiating
+// all three cost ~4% shell CPU at idle before this was fixed.
 //
-// Both assets are chroma-keyed cut-outs with real 8-bit alpha, NOT tiles with
-// baked-in darkness. An earlier version baked its own dark vignette in, which
-// was invisible on an opaque bar and showed as a floating dark rectangle the
-// moment the bar went transparent. A silhouette has nothing to blend.
+//   "hang"    (default) big, on its own layer surface below the bar, hanging
+//             over your wallpaper. Reserves no space, click-through except on
+//             the creature itself.
+//   "descend" the same animation, small, inside the bar cell.
+//   "peek"    hooks its head over the bar's edge from below.
 //
-// The descent is a sprite sheet rather than video: mp4 carries no alpha, GIF has
-// only 1-bit alpha (jagged edges over a wallpaper), and Omarchy's Qt ships no
-// webp plugin. A sheet gives full alpha, one texture upload and GPU playback.
+// Assets are chroma-keyed cut-outs with real 8-bit alpha, never tiles with
+// baked-in darkness: a dark tile is invisible on an opaque bar and shows as a
+// floating rectangle the moment the bar goes transparent.
 
 import Quickshell
 import Quickshell.Wayland
@@ -30,250 +31,265 @@ Item {
 
   readonly property int    sz: bar ? bar.barSize : 26
   readonly property string pluginId: "io.github.mrjamesmyers.gremlins"
-  // "hang"    - big, below the bar, over your wallpaper (default)
-  // "descend" - the same animation, small, inside the bar cell
-  // "peek"    - hooks its head over the bar's edge from below
   readonly property string style: (settings && settings.style) || "hang"
 
-  // hang-mode geometry
-  readonly property int  hangHeight: (settings && settings.hangHeight) || 190
-  readonly property real hangX:      (settings && settings.hangX) !== undefined ? settings.hangX : 0.74
-  readonly property int  barPixels:  (settings && settings.barPixels) || 43
-
-  // The bar is instantiated once per monitor, so every instance of this widget
-  // would spawn its own hanging window and they would stack invisibly on top of
-  // each other. Only the instance living on the first screen owns it.
-  readonly property bool ownsHangWindow:
-    Quickshell.screens.length > 0 && Screen.name === Quickshell.screens[0].name
-
-  // How often it shows up, in seconds. Rare is the point - a thing that stares
-  // at you constantly is a decoration, not a scare.
   readonly property int minGap: (settings && settings.peekMinSeconds) || 45
   readonly property int maxGap: (settings && settings.peekMaxSeconds) || 120
 
-  // sprite sheet geometry
+  readonly property int  hangHeight: (settings && settings.hangHeight) || 190
+  readonly property real hangX: (settings && settings.hangX) !== undefined ? settings.hangX : 0.74
+  readonly property int  barPixels: (settings && settings.barPixels) || 43
+
+  // The bar is instantiated once per monitor, so without this every instance
+  // spawns its own hanging window and they stack invisibly.
+  readonly property bool ownsHang:
+    Quickshell.screens.length > 0 && Screen.name === Quickshell.screens[0].name
+
   readonly property int spriteFrames: 42
-  readonly property int spriteW: 94
-  readonly property int spriteH: 72
+
+  // A sprite sheet played by translating one clipped Image.
+  //
+  // NOT AnimatedSprite: its QQuickSpriteEngine keeps a frame timer alive even
+  // with running:false and paused:true, which measured 3.25% shell CPU at idle
+  // versus 0.08% for a static image. In a process that lives for weeks that is
+  // not acceptable for a thing you see for ten seconds a minute. This is one
+  // texture, no animation driver, and a stopped timer costs nothing.
+  component Sprite: Item {
+    id: sp
+    property string sheet
+    property int    cols: 7
+    property int    frameW: 236
+    property int    frameH: 180
+    property int    frames: 42
+    property int    fps: 12
+    property int    frame: 0
+    property bool   reverse: false
+    signal finished()
+
+    clip: true
+    readonly property real k: height > 0 ? height / frameH : 1
+    implicitWidth: Math.round(frameW * k)
+
+    Image {
+      source: sp.sheet
+      width:  Math.round(sp.cols * sp.frameW * sp.k)
+      height: Math.round(Math.ceil(sp.frames / sp.cols) * sp.frameH * sp.k)
+      x: -Math.round((sp.frame % sp.cols) * sp.frameW * sp.k)
+      y: -Math.round(Math.floor(sp.frame / sp.cols) * sp.frameH * sp.k)
+      smooth: true
+      cache: true
+    }
+
+    Timer {
+      id: ticker
+      interval: Math.max(16, Math.round(1000 / sp.fps))
+      repeat: true
+      running: false
+      onTriggered: sp.step()
+    }
+
+    function play(rev) {
+      sp.reverse = !!rev
+      sp.frame = rev ? sp.frames - 1 : 0
+      ticker.start()
+    }
+    function halt() { ticker.stop() }
+    function step() {
+      var n = sp.frame + (sp.reverse ? -1 : 1)
+      if (n < 0 || n >= sp.frames) { ticker.stop(); sp.finished(); return }
+      sp.frame = n
+    }
+    readonly property bool playing: ticker.running
+  }
 
   implicitWidth: root.style === "hang"     ? 6
-               : root.style === "descend" ? Math.round(sz * root.spriteW / root.spriteH)
+               : root.style === "descend" ? Math.round(sz * 94 / 72)
                :                            Math.round(sz * 1.75)
   implicitHeight: sz
-  clip: true
+  clip: root.style !== "hang"
 
   property bool watching: false
-  property bool away: false        // true while the bumper owns the screen
+  property bool away: false
+  // Gates construction of the hang window. A hidden-but-built PanelWindow with
+  // a 1652x1080 sheet still cost 1.27% shell CPU at idle; not building it costs
+  // nothing, and QQuickPixmap caches the decode so re-showing is cheap.
+  property bool hangLive: false
+  property bool hangPending: false
 
-  // ---------------- descend ----------------
-  AnimatedSprite {
-    id: climber
-    visible: root.style === "descend"
-    anchors.fill: parent
-    source: Qt.resolvedUrl("assets/descend.png")
-    frameCount: root.spriteFrames
-    frameWidth: root.spriteW
-    frameHeight: root.spriteH
-    frameRate: 12
-    loops: 1
-    running: false
-    interpolate: false
-    opacity: root.away ? 0 : 1
-    Behavior on opacity { NumberAnimation { duration: 200 } }
+  readonly property var actor:
+      root.style === "hang"    ? hangL.item
+    : root.style === "descend" ? descendL.item
+    :                            peekL.item
 
-    // hold on the last frame instead of snapping back to an empty one
-    onRunningChanged: {
-      if (!running && !climber.reverse) { climber.currentFrame = root.spriteFrames - 1; climber.paused = true }
-      if (!running && climber.reverse)  { climber.currentFrame = 0; climber.paused = true }
-    }
-  }
-
-  // ---------------- hang: its own layer surface, outside the bar ----------------
-  //
-  // exclusionMode Ignore is mandatory - a layer-shell surface that reserves
-  // space would push every window on the screen down to make room for a
-  // gremlin. And the mask means only the creature takes clicks; everything
-  // around it behaves as though the window isn't there.
   Loader {
-    id: hangLoader
-    active: root.style === "hang" && root.ownsHangWindow
-    sourceComponent: PanelWindow {
-    id: hangWin
-    property alias sprite: bigSprite
-    visible: !root.away && (root.watching || bigSprite.running)
-    anchors { top: true; left: true; right: true }
-    implicitHeight: root.barPixels + root.hangHeight
-    color: "transparent"
-    WlrLayershell.namespace: "omarchy-gremlins-hang"
-    WlrLayershell.layer: WlrLayer.Top
-    WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
-    exclusionMode: ExclusionMode.Ignore
-    mask: Region { item: bigSprite }
+    id: hangL
+    active: root.style === "hang" && root.ownsHang && root.hangLive
+    sourceComponent: hangComp
+    onLoaded: if (root.hangPending) { root.hangPending = false; item.arrive() }
+  }
+  Loader { id: descendL; active: root.style === "descend"; anchors.fill: parent; sourceComponent: descendComp }
+  Loader { id: peekL;    active: root.style === "peek";    anchors.fill: parent; sourceComponent: peekComp }
 
-    AnimatedSprite {
-      id: bigSprite
-      source: Qt.resolvedUrl("assets/descend-big.png")
-      frameCount: root.spriteFrames
-      frameWidth: 236
-      frameHeight: 180
-      frameRate: 12
-      loops: 1
-      running: false
-      interpolate: false
-      height: root.hangHeight
-      width: Math.round(root.hangHeight * 236 / 180)
-      y: root.barPixels
-      x: Math.round((hangWin.width - width) * root.hangX)
+  // ---------------- hang ----------------
+  Component {
+    id: hangComp
+    PanelWindow {
+      id: win
+      // exclusionMode Ignore is mandatory: a layer surface that reserves space
+      // would push every window on the screen down to make room for a gremlin.
+      visible: !root.away && (root.watching || sprite.playing)
+      anchors { top: true; left: true; right: true }
+      implicitHeight: root.barPixels + root.hangHeight
+      color: "transparent"
+      WlrLayershell.namespace: "omarchy-gremlins-hang"
+      WlrLayershell.layer: WlrLayer.Top
+      WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+      exclusionMode: ExclusionMode.Ignore
+      mask: Region { item: sprite }   // only the creature takes clicks
 
-      onRunningChanged: {
-        if (!running && !bigSprite.reverse) { bigSprite.currentFrame = root.spriteFrames - 1; bigSprite.paused = true }
-        if (!running && bigSprite.reverse)  { bigSprite.currentFrame = 0; bigSprite.paused = true }
+      function arrive() { sprite.play(false) }
+      function leave()  { sprite.play(true) }
+      function reset()  { sprite.halt(); sprite.frame = 0 }
+
+      Sprite {
+        id: sprite
+        sheet: Qt.resolvedUrl("assets/descend-big.png")
+        cols: 7; frameW: 236; frameH: 180; frames: root.spriteFrames; fps: 12
+        height: root.hangHeight
+        width: Math.round(root.hangHeight * 236 / 180)
+        y: root.barPixels
+        x: Math.round((win.width - width) * root.hangX)
+        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.trigger() }
       }
-
-      MouseArea {
-        anchors.fill: parent
-        cursorShape: Qt.PointingHandCursor
-        onClicked: root.trigger()
-      }
-    }
     }
   }
 
-  // ---------------- peek ----------------
-  Image {
-    id: peeker
-    visible: root.style === "peek"
-    source: Qt.resolvedUrl("assets/peek.png")
-    height: root.height
-    fillMode: Image.PreserveAspectFit
-    anchors.horizontalCenter: parent.horizontalCenter
-    y: root.hiddenY
-    opacity: root.away ? 0 : 1
-    Behavior on y { NumberAnimation { duration: root.watching ? 900 : 520
-                    easing.type: root.watching ? Easing.OutCubic : Easing.InCubic } }
-    Behavior on anchors.horizontalCenterOffset { NumberAnimation { duration: 420; easing.type: Easing.InOutQuad } }
-    Behavior on opacity { NumberAnimation { duration: 200 } }
+  // ---------------- descend (in-bar) ----------------
+  Component {
+    id: descendComp
+    Sprite {
+      id: small
+      sheet: Qt.resolvedUrl("assets/descend.png")
+      cols: 42; frameW: 94; frameH: 72; frames: root.spriteFrames; fps: 12
+      height: root.height
+      width: root.width
+      opacity: root.away ? 0 : 1
+      Behavior on opacity { NumberAnimation { duration: 200 } }
+      function arrive() { play(false) }
+      function leave()  { play(true) }
+      function reset()  { halt(); frame = 0 }
+    }
   }
 
-  readonly property real hiddenY: root.height + 2
-  readonly property real peekY:   Math.round(root.height * 0.06)
+  // ---------------- peek (in-bar) ----------------
+  Component {
+    id: peekComp
+    Item {
+      id: pk
+      readonly property real hiddenY: root.height + 2
+      readonly property real shownY:  Math.round(root.height * 0.06)
 
-  // ---------------- appearance cycle ----------------
+      function arrive() { img.y = shownY; duck.restart(); glance.restart() }
+      function leave()  { img.y = hiddenY; img.anchors.horizontalCenterOffset = 0 }
+      function reset()  { img.y = hiddenY }
+
+      Image {
+        id: img
+        source: Qt.resolvedUrl("assets/peek.png")
+        height: root.height
+        fillMode: Image.PreserveAspectFit
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: pk.hiddenY
+        opacity: root.away ? 0 : 1
+        Behavior on y { NumberAnimation { duration: root.watching ? 900 : 520
+                        easing.type: root.watching ? Easing.OutCubic : Easing.InCubic } }
+        Behavior on anchors.horizontalCenterOffset { NumberAnimation { duration: 420; easing.type: Easing.InOutQuad } }
+        Behavior on opacity { NumberAnimation { duration: 200 } }
+      }
+      // A photographic face can't blink by squashing - it looks broken. It ducks
+      // below the edge instead, which is what a real thing peeking would do.
+      Timer { id: duck; interval: 1800 + Math.random()*1500; repeat: true; running: root.watching; onTriggered: duckAnim.restart() }
+      SequentialAnimation {
+        id: duckAnim
+        NumberAnimation { target: img; property: "y"; to: pk.shownY + root.height*0.42; duration: 130; easing.type: Easing.InQuad }
+        PauseAnimation { duration: 90 }
+        NumberAnimation { target: img; property: "y"; to: pk.shownY; duration: 160; easing.type: Easing.OutQuad }
+      }
+      Timer { id: glance; interval: 2200 + Math.random()*1800; repeat: true; running: root.watching
+              onTriggered: img.anchors.horizontalCenterOffset = (Math.random()<0.5?-1:1) * Math.max(1, Math.round(root.width*0.05)) }
+    }
+  }
+
+  // ---------------- cycle ----------------
   Timer {
     id: nextPeek
-    running: !root.away && (root.style !== "hang" || root.ownsHangWindow)
+    running: !root.away && (root.style !== "hang" || root.ownsHang)
     repeat: false
-    interval: (root.minGap + Math.random() * (root.maxGap - root.minGap)) * 1000
+    interval: (root.minGap + Math.random()*(root.maxGap-root.minGap)) * 1000
     onTriggered: root.arrive()
   }
-
   Timer { id: stayFor; repeat: false; onTriggered: root.leave() }
+  Timer {
+    id: hangTeardown
+    repeat: false
+    interval: Math.round(root.spriteFrames / 12 * 1000) + 500
+    onTriggered: { root.hangLive = false; root.hangPending = false }
+  }
 
   function arrive() {
     if (root.away) return
     root.watching = true
     if (root.style === "hang") {
-      if (!root.ownsHangWindow) return
-      var sp = hangLoader.item ? hangLoader.item.sprite : null
-      if (sp) { sp.paused = false; sp.reverse = false; sp.currentFrame = 0; sp.running = true }
-    } else if (root.style === "descend") {
-      climber.paused = false
-      climber.reverse = false
-      climber.currentFrame = 0
-      climber.running = true
-    } else {
-      peeker.y = root.peekY
-      glance.restart()
-      duck.restart()
+      if (!root.ownsHang) return
+      if (hangL.item) hangL.item.arrive()
+      else { root.hangPending = true; root.hangLive = true }   // built, then arrives onLoaded
+    } else if (root.actor) {
+      root.actor.arrive()
     }
-    stayFor.interval = 5000 + Math.random() * 5000
+    stayFor.interval = 5000 + Math.random()*5000
     stayFor.restart()
   }
 
   function leave() {
     root.watching = false
-    if (root.style === "hang") {
-      if (!root.ownsHangWindow) return
-      var sp2 = hangLoader.item ? hangLoader.item.sprite : null
-      if (sp2) { sp2.paused = false; sp2.reverse = true; sp2.running = true }
-    } else if (root.style === "descend") {
-      climber.paused = false
-      climber.reverse = true          // climb back up the way it came
-      climber.running = true
-    } else {
-      peeker.y = root.hiddenY
-      peeker.anchors.horizontalCenterOffset = 0
-    }
-    nextPeek.interval = (root.minGap + Math.random() * (root.maxGap - root.minGap)) * 1000
+    if (root.actor) root.actor.leave()
+    // Tear the hang window down once the climb-out has had time to finish.
+    // A signal-driven teardown proved unreliable here, and a window that
+    // survives is the difference between 0.1% and 1.5% idle CPU forever - so
+    // this is a deadline, not an optimisation.
+    if (root.style === "hang") hangTeardown.restart()
+    nextPeek.interval = (root.minGap + Math.random()*(root.maxGap-root.minGap)) * 1000
     nextPeek.restart()
   }
 
-  // peek-style idle motion
-  Timer {
-    id: duck
-    interval: 1800 + Math.random() * 1500
-    repeat: true
-    running: root.watching && root.style === "peek"
-    onTriggered: duckAnim.restart()
-  }
-  SequentialAnimation {
-    id: duckAnim
-    NumberAnimation { target: peeker; property: "y"; to: root.peekY + root.height * 0.42; duration: 130; easing.type: Easing.InQuad }
-    PauseAnimation { duration: 90 }
-    NumberAnimation { target: peeker; property: "y"; to: root.peekY; duration: 160; easing.type: Easing.OutQuad }
-  }
-  Timer {
-    id: glance
-    interval: 2200 + Math.random() * 1800
-    repeat: true
-    running: root.watching && root.style === "peek"
-    onTriggered: peeker.anchors.horizontalCenterOffset =
-      (Math.random() < 0.5 ? -1 : 1) * Math.max(1, Math.round(root.width * 0.05))
+  function trigger() {
+    if (!bar) return
+    bar.run("omarchy-shell shell toggle " + root.pluginId)
+    root.away = true          // it isn't here now - it's on your screen
+    root.watching = false
+    stayFor.stop()
+    comeBack.restart()
   }
 
   MouseArea {
     anchors.fill: parent
     hoverEnabled: true
     cursorShape: Qt.PointingHandCursor
-
     onEntered: {
       if (bar) bar.showTooltip(root, "Gremlins - click to replay the bumper")
-      if (!root.away && !root.watching) root.arrive()
-      else stayFor.stop()
+      if (!root.away && !root.watching) root.arrive(); else stayFor.stop()
     }
     onExited: {
       if (bar) bar.hideTooltip(root)
       if (!root.away && root.watching && !stayFor.running) { stayFor.interval = 1500; stayFor.restart() }
     }
-
-    // Verified against /usr/bin/omarchy-shell: usage is
-    //   omarchy-shell [-q] <target> <method> [args...]
-    // so the "shell" target is required.
     onClicked: root.trigger()
-  }
-
-  function trigger() {
-    if (!bar) return
-    bar.run("omarchy-shell shell toggle " + root.pluginId)
-    root.away = true                 // it isn't here now - it's on your screen
-    root.watching = false
-    stayFor.stop()
-    comeBack.restart()
   }
 
   Timer {
     id: comeBack
     interval: 3600
-    onTriggered: {
-      root.away = false
-      if (root.style === "hang") {
-        var sp3 = hangLoader.item ? hangLoader.item.sprite : null
-        if (sp3) { sp3.currentFrame = 0; sp3.paused = true }
-      }
-      else if (root.style === "descend") { climber.currentFrame = 0; climber.paused = true }
-      else                                peeker.y = root.hiddenY
-      nextPeek.restart()
-    }
+    onTriggered: { root.away = false; root.hangLive = false; root.hangPending = false; hangTeardown.stop(); nextPeek.restart() }
   }
 
   Component.onCompleted: { nextPeek.interval = 7000; nextPeek.restart() }
