@@ -6,6 +6,8 @@ desktop is yours.
 
 > The R is silent. That's the joke, and also the point.
 
+![Gremlins](preview.gif)
+
 ```bash
 omarchy plugin add https://github.com/mrjamesmyers/omarchy-gremlins.git --enable
 ```
