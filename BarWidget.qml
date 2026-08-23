@@ -41,14 +41,22 @@ Item {
   readonly property int  barPixels: (settings && settings.barPixels) || 43
   // How far the creature reaches up over the bar, so its fingers grip the bar
   // itself rather than dangling below it.
-  readonly property int  gripOverlap: (settings && settings.gripOverlap) !== undefined ? settings.gripOverlap : 26
+  // How far the fingers reach up onto the bar's face. Deliberately thin: the
+  // forearms live in the frame's top rows and must stay hidden behind the bar -
+  // only the grip itself belongs in front of it.
+  readonly property int  gripOverlap: (settings && settings.gripOverlap) !== undefined ? settings.gripOverlap : 20
+  // Screen y of sprite row 0. Measured from the sheet: rows 0-30 are forearm,
+  // 32 is the wrist pinch, 34-60 are fingers, 62+ is the head. -31 puts row 62
+  // (head top) exactly at the bar's lower edge, so the fingers land ON the bar
+  // and the forearms fall off the top and are never drawn at all.
+  readonly property int  spriteTopY: (settings && settings.spriteTopY) !== undefined ? settings.spriteTopY : -31
 
   // The bar is instantiated once per monitor, so without this every instance
   // spawns its own hanging window and they stack invisibly.
   readonly property bool ownsHang:
     Quickshell.screens.length > 0 && Screen.name === Quickshell.screens[0].name
 
-  readonly property int spriteFrames: 90
+  readonly property int spriteFrames: 75
 
   // A sprite sheet played by translating one clipped Image.
   //
@@ -168,18 +176,45 @@ Item {
       id: hangRoot
       property alias sprite: bodySprite
 
-      function arrive() { bodySprite.play(false) }
+      function arrive() { hangRoot.frameIdx = 0; hangRoot.playing = true; clock.restart() }
       function leave()  { }        // the sheet ends with it already gone
-      function reset()  { bodySprite.halt(); bodySprite.frame = 0 }
+      function reset()  { clock.stop(); hangRoot.playing = false; hangRoot.frameIdx = 0 }
+
+      // The parent Item owns the frame counter. Binding one window's sprite to
+      // an id inside ANOTHER PanelWindow does not track - each window is its own
+      // top-level scene graph, so the binding evaluates once and then freezes,
+      // silently, with no warning. Both slices read from here instead.
+      property int  frameIdx: 0
+      property bool playing: false
+      readonly property int  fadeFrames: 6
+      readonly property real fadeOpacity:
+        (playing && frameIdx > root.spriteFrames - fadeFrames)
+          ? Math.max(0, (root.spriteFrames - frameIdx) / fadeFrames) : 1
+
+      Timer {
+        id: clock
+        interval: 83
+        repeat: true
+        running: false
+        onTriggered: {
+          if (hangRoot.frameIdx + 1 >= root.spriteFrames) { clock.stop(); hangRoot.playing = false; return }
+          hangRoot.frameIdx += 1
+        }
+      }
 
       readonly property real k: root.hangHeight / 160
-      readonly property int  handRows: Math.max(1, Math.round(root.gripOverlap / k))
       readonly property int  spriteW: Math.round(247 * k)
+      // Both slices are windows onto the SAME positioned sprite, expressed in
+      // screen space and converted to source rows. That keeps them continuous:
+      // the body slice starts exactly where the hand slice stops.
+      readonly property int  frontTopRow: Math.max(0, Math.round((root.barPixels - root.gripOverlap - root.spriteTopY) / k))
+      readonly property int  frontRows:   Math.max(1, Math.round(root.gripOverlap / k))
+      readonly property int  bodyTopRow:  Math.max(0, Math.round((root.barPixels - root.spriteTopY) / k))
 
       // body - beneath the bar
       PanelWindow {
         id: bodyWin
-        visible: !root.away && (root.watching || bodySprite.playing)
+        visible: !root.away && (root.watching || hangRoot.playing)
         anchors { top: true; left: true; right: true }
         implicitHeight: root.barPixels + root.hangHeight
         color: "transparent"
@@ -194,8 +229,12 @@ Item {
           sheet: Qt.resolvedUrl("assets/descend-big.png")
           cols: 10; frameW: 247; frameH: 160; frames: root.spriteFrames; fps: 12
           k: hangRoot.k
-          srcTop: hangRoot.handRows
-          srcRows: 160 - hangRoot.handRows
+          frame: hangRoot.frameIdx
+          opacity: hangRoot.fadeOpacity
+          srcTop: hangRoot.bodyTopRow
+          srcRows: 160 - hangRoot.bodyTopRow
+          width: hangRoot.spriteW
+          height: Math.round((160 - hangRoot.bodyTopRow) * hangRoot.k)
           x: Math.round((bodyWin.width - hangRoot.spriteW) * root.hangX)
           y: root.barPixels
           MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.trigger() }
@@ -221,10 +260,12 @@ Item {
           sheet: Qt.resolvedUrl("assets/descend-big.png")
           cols: 10; frameW: 247; frameH: 160; frames: root.spriteFrames; fps: 12
           k: hangRoot.k
-          srcTop: 0
-          srcRows: hangRoot.handRows
-          frame: bodySprite.frame          // slaved - its own ticker never runs
-          opacity: bodySprite.opacity
+          srcTop: hangRoot.frontTopRow
+          srcRows: hangRoot.frontRows
+          width: hangRoot.spriteW
+          height: Math.round(hangRoot.frontRows * hangRoot.k)
+          frame: hangRoot.frameIdx
+          opacity: hangRoot.fadeOpacity
           x: Math.round((handWin.width - hangRoot.spriteW) * root.hangX)
           y: root.barPixels - root.gripOverlap
         }
