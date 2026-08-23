@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.mrjamesmyers.beam",
+  "name": "Beam",
+  "version": "0.1.0",
+  "author": "James Myers",
+  "license": "MIT",
+  "description": "AirDrop for Omarchy. Beam speaks the LocalSend protocol, so your Linux desktop shows up in the share sheet of the iPhones, Android phones, Macs and Windows machines around it - and they show up in yours. Peer to peer over your own LAN, encrypted, no account, no cloud, no relay.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Beam",
+    "category": "Network",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "alias": "",
+      "downloadDir": "",
+      "autoAccept": false,
+      "pin": "",
+      "quiet": false,
+      "notifyOnReceive": true
+    },
+    "schema": [
+      {
+        "key": "alias",
+        "type": "string",
+        "label": "Device name",
+        "defaultValue": "",
+        "description": "What other devices call this machine. Empty picks a friendly two-word name and remembers it."
+      },
+      {
+        "key": "downloadDir",
+        "type": "string",
+        "label": "Save files to",
+        "defaultValue": "",
+        "description": "Where accepted files land. Empty means ~/Downloads."
+      },
+      {
+        "key": "autoAccept",
+        "type": "boolean",
+        "label": "Accept without asking",
+        "defaultValue": false,
+        "description": "Take every incoming file with no prompt. Convenient on a home network, reckless on a shared one. Off by default."
+      },
+      {
+        "key": "pin",
+        "type": "string",
+        "label": "Require a PIN",
+        "defaultValue": "",
+        "description": "Senders must supply this PIN before this machine will even show them a prompt. Empty means no PIN."
+      },
+      {
+        "key": "quiet",
+        "type": "boolean",
+        "label": "Invisible",
+        "defaultValue": false,
+        "description": "Stop announcing on the network. You can still send; nobody can see you to send to you."
+      },
+      {
+        "key": "notifyOnReceive",
+        "type": "boolean",
+        "label": "Notify on arrival",
+        "defaultValue": true,
+        "description": "Raise a desktop notification when files finish arriving."
+      }
+    ]
+  }
+}
