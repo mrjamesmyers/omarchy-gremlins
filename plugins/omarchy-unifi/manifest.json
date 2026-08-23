@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.mrjamesmyers.unifi",
+  "name": "UniFi",
+  "version": "0.1.0",
+  "author": "James Myers",
+  "license": "MIT",
+  "description": "Your Ubiquiti network in the bar. Reads the UniFi Network Integration API on a local console or self-hosted controller and shows what is up, what is down, and who is connected. Read-only, key stored outside shell.json, certificate pinned on first use.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "UniFi",
+    "category": "Network",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "host": "",
+      "port": 443,
+      "site": "",
+      "keyFile": "",
+      "pollSeconds": 20,
+      "showClientCount": true
+    },
+    "schema": [
+      {
+        "key": "host",
+        "type": "string",
+        "label": "Console address",
+        "defaultValue": "",
+        "description": "The IP or hostname of your UniFi console, e.g. 192.168.1.1. No scheme, no path."
+      },
+      {
+        "key": "port",
+        "type": "integer",
+        "label": "Port",
+        "defaultValue": 443,
+        "description": "443 for a UniFi OS console (UDM, UCG, UDR, Cloud Key), 8443 for a self-hosted controller, 11443 for UniFi OS Server."
+      },
+      {
+        "key": "site",
+        "type": "string",
+        "label": "Site id",
+        "defaultValue": "",
+        "description": "Which site to show. Empty uses the first one, which is what almost everybody wants."
+      },
+      {
+        "key": "keyFile",
+        "type": "string",
+        "label": "API key file",
+        "defaultValue": "",
+        "description": "Path to a file containing only your API key, mode 0600. Empty means ~/.config/omarchy/unifi.key. The key is deliberately not stored here."
+      },
+      {
+        "key": "pollSeconds",
+        "type": "integer",
+        "label": "Refresh every (seconds)",
+        "defaultValue": 20,
+        "description": "How often to ask the console. Each poll is three or four small requests on your own LAN."
+      },
+      {
+        "key": "showClientCount",
+        "type": "boolean",
+        "label": "Show client count in the bar",
+        "defaultValue": true,
+        "description": "Off shows only the health dot."
+      }
+    ]
+  }
+}
