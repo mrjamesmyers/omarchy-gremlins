@@ -3,11 +3,18 @@
 Three Omarchy plugins built in this repository, each self-contained in its own
 directory.
 
-| Plugin | What it closes | Requires |
-|---|---|---|
-| [`omarchy-beam`](omarchy-beam/) | AirDrop — file transfer to and from phones, Macs and Windows machines, over LocalSend | `python3`, `openssl` |
-| [`omarchy-cast`](omarchy-cast/) | Cast to TV — Chromecast, Google TV and DLNA televisions | `python3` |
-| [`omarchy-unifi`](omarchy-unifi/) | Your Ubiquiti network, read-only, in the bar | `python3` |
+| Plugin | What it closes | Registry status | Requires |
+|---|---|---|---|
+| [`omarchy-paper`](omarchy-paper/) | Printing — AirPrint | **nothing in 1,099 names this** | `python3`, CUPS |
+| [`omarchy-mixer`](omarchy-mixer/) | Per-app volume — Volume Mixer | **nothing in 1,099 names this** | `python3`, `pactl` |
+| [`omarchy-cast`](omarchy-cast/) | Cast media to TV | complements `hackxit.chromecast`, which mirrors instead | `python3` |
+| [`omarchy-beam`](omarchy-beam/) | AirDrop — file transfer | overlaps `oma.nearby` | `python3`, `openssl` |
+| [`omarchy-unifi`](omarchy-unifi/) | Ubiquiti network status | overlaps `hegjon.unifi`, which is better | `python3` |
+
+The registry column matters. It was checked against the real community registry —
+1,099 plugins — *after* the first three were written, which is the wrong order and is
+recorded as such in `../ROADMAP.md`. Paper and Mixer were chosen from that data
+rather than from a guess.
 
 ## They live here for now, but they cannot ship from here
 
