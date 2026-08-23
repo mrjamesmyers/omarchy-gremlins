@@ -48,7 +48,7 @@ Item {
   readonly property bool ownsHang:
     Quickshell.screens.length > 0 && Screen.name === Quickshell.screens[0].name
 
-  readonly property int spriteFrames: 106
+  readonly property int spriteFrames: 90
 
   // A sprite sheet played by translating one clipped Image.
   //
@@ -65,12 +65,20 @@ Item {
     property int    frameH: 180
     property int    frames: 42
     property int    fps: 12
+    // Render only rows [srcTop, srcTop+srcRows) of each frame. Lets one sheet
+    // and one frame counter drive two views on different layers, so the bar can
+    // sit between the creature's body and its hands.
+    property int    srcTop: 0
+    property int    srcRows: 0          // 0 = whole frame
     property int    frame: 0
     property bool   reverse: false
     signal finished()
 
     clip: true
-    readonly property real k: height > 0 ? height / frameH : 1
+    readonly property int rows: srcRows > 0 ? srcRows : frameH
+    // k is set by the owner from the FULL frame height, not this slice, so two
+    // slices of the same sheet scale identically and stay aligned.
+    property real k: height > 0 ? height / frameH : 1
 
     // Fade the tail. Even with a clean exit in the source, cutting straight to
     // nothing on the last frame reads as the animation breaking rather than
@@ -79,13 +87,14 @@ Item {
     opacity: (ticker.running && sp.frame > sp.frames - sp.fadeFrames)
              ? Math.max(0, (sp.frames - sp.frame) / sp.fadeFrames) : 1
     implicitWidth: Math.round(frameW * k)
+    implicitHeight: Math.round(rows * k)
 
     Image {
       source: sp.sheet
       width:  Math.round(sp.cols * sp.frameW * sp.k)
       height: Math.round(Math.ceil(sp.frames / sp.cols) * sp.frameH * sp.k)
       x: -Math.round((sp.frame % sp.cols) * sp.frameW * sp.k)
-      y: -Math.round(Math.floor(sp.frame / sp.cols) * sp.frameH * sp.k)
+      y: -Math.round((Math.floor(sp.frame / sp.cols) * sp.frameH + sp.srcTop) * sp.k)
       smooth: true
       cache: true
     }
@@ -141,35 +150,84 @@ Item {
   Loader { id: peekL;    active: root.style === "peek";    anchors.fill: parent; sourceComponent: peekComp }
 
   // ---------------- hang ----------------
+  //
+  // TWO layer surfaces, not one. The creature climbs down from behind the bar,
+  // so the bar must occlude its body - but its fingers curl over the front of
+  // the bar and must be drawn on top of it. A single window can only be above
+  // or below; this is the sandwich:
+  //
+  //     overlay (3)  hands slice   <- rows [0, handRows)
+  //     top     (2)  the bar itself
+  //     bottom  (1)  body slice    <- rows [handRows, frameH)
+  //
+  // One sheet, one frame counter: the hands slice binds its frame to the body
+  // slice, so they can never drift apart.
   Component {
     id: hangComp
-    PanelWindow {
-      id: win
-      // exclusionMode Ignore is mandatory: a layer surface that reserves space
-      // would push every window on the screen down to make room for a gremlin.
-      visible: !root.away && (root.watching || sprite.playing)
-      anchors { top: true; left: true; right: true }
-      implicitHeight: root.barPixels + root.hangHeight
-      color: "transparent"
-      WlrLayershell.namespace: "omarchy-gremlins-hang"
-      WlrLayershell.layer: WlrLayer.Overlay
-      WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
-      exclusionMode: ExclusionMode.Ignore
-      mask: Region { item: sprite }   // only the creature takes clicks
+    Item {
+      id: hangRoot
+      property alias sprite: bodySprite
 
-      function arrive() { sprite.play(false) }
+      function arrive() { bodySprite.play(false) }
       function leave()  { }        // the sheet ends with it already gone
-      function reset()  { sprite.halt(); sprite.frame = 0 }
+      function reset()  { bodySprite.halt(); bodySprite.frame = 0 }
 
-      Sprite {
-        id: sprite
-        sheet: Qt.resolvedUrl("assets/descend-big.png")
-        cols: 11; frameW: 247; frameH: 160; frames: root.spriteFrames; fps: 12
-        height: root.hangHeight
-        width: Math.round(root.hangHeight * 247 / 160)
-        y: root.barPixels - root.gripOverlap
-        x: Math.round((win.width - width) * root.hangX)
-        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.trigger() }
+      readonly property real k: root.hangHeight / 160
+      readonly property int  handRows: Math.max(1, Math.round(root.gripOverlap / k))
+      readonly property int  spriteW: Math.round(247 * k)
+
+      // body - beneath the bar
+      PanelWindow {
+        id: bodyWin
+        visible: !root.away && (root.watching || bodySprite.playing)
+        anchors { top: true; left: true; right: true }
+        implicitHeight: root.barPixels + root.hangHeight
+        color: "transparent"
+        WlrLayershell.namespace: "omarchy-gremlins-body"
+        WlrLayershell.layer: WlrLayer.Bottom
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+        exclusionMode: ExclusionMode.Ignore
+        mask: Region { item: bodySprite }
+
+        Sprite {
+          id: bodySprite
+          sheet: Qt.resolvedUrl("assets/descend-big.png")
+          cols: 10; frameW: 247; frameH: 160; frames: root.spriteFrames; fps: 12
+          k: hangRoot.k
+          srcTop: hangRoot.handRows
+          srcRows: 160 - hangRoot.handRows
+          x: Math.round((bodyWin.width - hangRoot.spriteW) * root.hangX)
+          y: root.barPixels
+          MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.trigger() }
+        }
+      }
+
+      // hands - above the bar. Fully click-through: an empty mask means every
+      // click passes straight through to whatever is underneath.
+      PanelWindow {
+        id: handWin
+        visible: bodyWin.visible
+        anchors { top: true; left: true; right: true }
+        implicitHeight: root.barPixels
+        color: "transparent"
+        WlrLayershell.namespace: "omarchy-gremlins-hands"
+        WlrLayershell.layer: WlrLayer.Overlay
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+        exclusionMode: ExclusionMode.Ignore
+        mask: Region {}
+
+        Sprite {
+          id: handSprite
+          sheet: Qt.resolvedUrl("assets/descend-big.png")
+          cols: 10; frameW: 247; frameH: 160; frames: root.spriteFrames; fps: 12
+          k: hangRoot.k
+          srcTop: 0
+          srcRows: hangRoot.handRows
+          frame: bodySprite.frame          // slaved - its own ticker never runs
+          opacity: bodySprite.opacity
+          x: Math.round((handWin.width - hangRoot.spriteW) * root.hangX)
+          y: root.barPixels - root.gripOverlap
+        }
       }
     }
   }
@@ -180,7 +238,7 @@ Item {
     Sprite {
       id: small
       sheet: Qt.resolvedUrl("assets/descend.png")
-      cols: 11; frameW: 74; frameH: 48; frames: root.spriteFrames; fps: 12
+      cols: 10; frameW: 74; frameH: 48; frames: root.spriteFrames; fps: 12
       height: root.height
       width: root.width
       opacity: root.away ? 0 : 1
