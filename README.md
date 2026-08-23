@@ -12,14 +12,18 @@ desktop is yours.
 omarchy plugin add https://github.com/mrjamesmyers/omarchy-gremlins.git --enable
 ```
 
+Omarchy will show you the repo and ask you to confirm — plugins run unsandboxed inside the
+shell process, so read the source before you enable anything, including this.
+
 ---
 
 ## What it does
 
 - **Plays once on login.** Not a loop, not a screensaver. Three seconds, then nothing.
-- **Hands off to a wallpaper.** The bumper flashes out into a companion background from the
-  same world — gremlins wandering off with your pixels — so the desktop reads as the
-  continuation of the animation rather than a cut to something unrelated.
+- **Comes with matching wallpapers.** The bumper flashes to white and hands you back your
+  desktop. Two companion backgrounds from the same world ship alongside it — gremlins
+  wandering off with your pixels — so the desktop can read as the continuation of the
+  animation. **You install them; the plugin never touches your wallpaper on its own.**
 - **Puts a gremlin in your bar.** Click it to replay. It's drawn in your theme's foreground
   colour, so it follows every Omarchy theme, including ones that don't exist yet.
 - **Loops only if you ask.** There's a setting. It's off by default, and it should be.
@@ -70,6 +74,18 @@ Inline on the plugin entry in `~/.config/omarchy/shell.json`:
 
 **Bring your own bumper.** Point `source` at any video file. The gremlins are the default,
 not the product — the product is the shape.
+
+## The wallpapers
+
+Two backgrounds ship in `assets/`, built to stay out of your way: near-black, wide open
+through the centre, with the gremlins small in one corner.
+
+```bash
+omarchy-theme-bg-set ~/.config/omarchy/plugins/io.github.mrjamesmyers.gremlins/assets/wallpaper-cool.jpg
+```
+
+Swap `cool` for `warm` if you prefer the warmer grade. To keep them in your theme's
+rotation instead, drop them in `~/.config/omarchy/backgrounds/<your-theme>/`.
 
 ## Known limits
 
