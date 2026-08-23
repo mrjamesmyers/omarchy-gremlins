@@ -24,9 +24,11 @@ shell process, so read the source before you enable anything, including this.
   desktop. Two companion backgrounds from the same world ship alongside it — gremlins
   wandering off with your pixels — so the desktop can read as the continuation of the
   animation. **You install them; the plugin never touches your wallpaper on its own.**
-- **Something lives behind your bar.** Every minute or two a pair of eyes rises into the
-  gap, watches for a few seconds, blinks, glances around, and drops away. Hover and it
-  notices you. Click to replay the bumper — and it vanishes, because it's on your screen now.
+- **Something lives behind your bar.** Every minute or two it hooks its head over the edge,
+  watches for a few seconds, ducks, glances around, and drops out of sight. Hover and it
+  notices you. Click to replay the bumper — and it leaves, because it's on your screen now.
+  It's a cut-out, so it reads correctly on a dark bar, a light theme, or a transparent bar
+  over a busy wallpaper.
 - **Loops only if you ask.** There's a setting. It's off by default, and it should be.
 
 ## Why it's shaped like this

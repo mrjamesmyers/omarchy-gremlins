@@ -8,10 +8,12 @@
 // a small boxy robot: 26px is too few pixels for a body, and it contradicted the
 // bumper, which is photoreal. Eyes work at this size, and they suit the tone.
 //
-// The asset keeps its own darkness rather than being keyed transparent - the
-// dark surround IS the slit. Its edges are alpha-vignetted so it composites onto
-// any theme: on a dark bar it disappears into the background, on a light one it
-// reads as a gap with something in it.
+// The asset is a chroma-keyed cut-out, NOT a vignetted dark tile. An earlier
+// version baked its own darkness in, which was invisible on an opaque bar and
+// showed as a floating dark rectangle the moment the bar went translucent
+// (double-click the bar to see it). A silhouette with real edges has nothing to
+// blend, so it reads correctly on an opaque dark bar, a light theme, and a
+// translucent bar over a busy wallpaper alike.
 
 import QtQuick
 
@@ -31,7 +33,7 @@ Item {
   readonly property int minGap: (settings && settings.peekMinSeconds) || 45
   readonly property int maxGap: (settings && settings.peekMaxSeconds) || 120
 
-  implicitWidth:  Math.round(sz * 2.2)
+  implicitWidth:  Math.round(sz * 1.75)
   implicitHeight: sz
   clip: true                       // this is the slit
 
@@ -43,12 +45,12 @@ Item {
 
   Image {
     id: eyes
-    source: Qt.resolvedUrl("assets/eyes.png")
-    width: root.width
+    source: Qt.resolvedUrl("assets/peek.png")
+    height: root.height
     fillMode: Image.PreserveAspectFit
+    anchors.horizontalCenter: parent.horizontalCenter
     smooth: true
     mipmap: true
-    x: 0
     y: root.hiddenY
     opacity: root.away ? 0 : 1
 
@@ -56,16 +58,10 @@ Item {
       NumberAnimation { duration: root.watching ? 900 : 520
                         easing.type: root.watching ? Easing.OutCubic : Easing.InCubic }
     }
-    Behavior on x { NumberAnimation { duration: 420; easing.type: Easing.InOutQuad } }
+    Behavior on anchors.horizontalCenterOffset { NumberAnimation { duration: 420; easing.type: Easing.InOutQuad } }
     Behavior on opacity { NumberAnimation { duration: 200 } }
 
     // blink: squash vertically about the eyeline
-    transform: Scale {
-      id: lid
-      origin.x: eyes.width / 2
-      origin.y: eyes.height * 0.45
-      yScale: 1.0
-    }
   }
 
   // ---- appearance cycle ----
@@ -96,7 +92,7 @@ Item {
   function stopWatching() {
     root.watching = false
     eyes.y = root.hiddenY
-    eyes.x = 0
+    eyes.anchors.horizontalCenterOffset = 0
     nextPeek.interval = (root.minGap + Math.random() * (root.maxGap - root.minGap)) * 1000
     nextPeek.restart()
   }
@@ -109,10 +105,14 @@ Item {
     running: root.watching
     onTriggered: blinkAnim.restart()
   }
+  // A photographic creature can't blink by squashing - it just looks broken.
+  // It ducks below the edge for a beat instead, which reads as alive and is
+  // the motion a real thing peeking over a ledge would actually make.
   SequentialAnimation {
     id: blinkAnim
-    NumberAnimation { target: lid; property: "yScale"; to: 0.06; duration: 70 }
-    NumberAnimation { target: lid; property: "yScale"; to: 1.0;  duration: 110 }
+    NumberAnimation { target: eyes; property: "y"; to: root.peekY + root.height * 0.42; duration: 130; easing.type: Easing.InQuad }
+    PauseAnimation { duration: 90 }
+    NumberAnimation { target: eyes; property: "y"; to: root.peekY; duration: 160; easing.type: Easing.OutQuad }
   }
 
   // and a slow glance sideways, so it isn't a static stare
@@ -121,7 +121,7 @@ Item {
     interval: 2200 + Math.random() * 1800
     repeat: true
     running: root.watching
-    onTriggered: eyes.x = (Math.random() < 0.5 ? -1 : 1) * Math.round(root.width * 0.06)
+    onTriggered: eyes.anchors.horizontalCenterOffset = (Math.random() < 0.5 ? -1 : 1) * Math.max(1, Math.round(root.width * 0.05))
   }
 
   MouseArea {
