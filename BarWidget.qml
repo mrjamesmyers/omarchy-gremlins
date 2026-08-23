@@ -41,14 +41,10 @@ Item {
   readonly property int  barPixels: (settings && settings.barPixels) || 43
   // How far the creature reaches up over the bar, so its fingers grip the bar
   // itself rather than dangling below it.
-  // How far the fingers reach up onto the bar's face. Deliberately thin: the
-  // forearms live in the frame's top rows and must stay hidden behind the bar -
-  // only the grip itself belongs in front of it.
-  readonly property int  gripOverlap: (settings && settings.gripOverlap) !== undefined ? settings.gripOverlap : 20
   // Screen y of sprite row 0. Measured from the sheet: rows 0-30 are forearm,
-  // 32 is the wrist pinch, 34-60 are fingers, 62+ is the head. -31 puts row 62
-  // (head top) exactly at the bar's lower edge, so the fingers land ON the bar
-  // and the forearms fall off the top and are never drawn at all.
+  // 32 the wrist, 34-60 fingers, 62+ the head. -31 puts row 62 (the head's
+  // crown) exactly at the bar's lower edge, so the creature hangs flush with
+  // the bar and everything above - hands and arms - is simply never drawn.
   readonly property int  spriteTopY: (settings && settings.spriteTopY) !== undefined ? settings.spriteTopY : -31
 
   // The bar is instantiated once per monitor, so without this every instance
@@ -159,17 +155,10 @@ Item {
 
   // ---------------- hang ----------------
   //
-  // TWO layer surfaces, not one. The creature climbs down from behind the bar,
-  // so the bar must occlude its body - but its fingers curl over the front of
-  // the bar and must be drawn on top of it. A single window can only be above
-  // or below; this is the sandwich:
-  //
-  //     overlay (3)  hands slice   <- rows [0, handRows)
-  //     top     (2)  the bar itself
-  //     bottom  (1)  body slice    <- rows [handRows, frameH)
-  //
-  // One sheet, one frame counter: the hands slice binds its frame to the body
-  // slice, so they can never drift apart.
+  // One layer surface, on the bottom layer so the bar draws over it. The
+  // creature hangs flush with the bar's lower edge and its arms are never
+  // rendered at all - an earlier version drew them on a second overlay surface
+  // above the bar, and dark fur on a dark bar simply never read.
   Component {
     id: hangComp
     Item {
@@ -204,11 +193,8 @@ Item {
 
       readonly property real k: root.hangHeight / 160
       readonly property int  spriteW: Math.round(247 * k)
-      // Both slices are windows onto the SAME positioned sprite, expressed in
-      // screen space and converted to source rows. That keeps them continuous:
-      // the body slice starts exactly where the hand slice stops.
-      readonly property int  frontTopRow: Math.max(0, Math.round((root.barPixels - root.gripOverlap - root.spriteTopY) / k))
-      readonly property int  frontRows:   Math.max(1, Math.round(root.gripOverlap / k))
+      // Where the drawn slice starts, derived from screen geometry: everything
+      // above the bar's lower edge is simply never rendered.
       readonly property int  bodyTopRow:  Math.max(0, Math.round((root.barPixels - root.spriteTopY) / k))
 
       // body - beneath the bar
@@ -241,35 +227,6 @@ Item {
         }
       }
 
-      // hands - above the bar. Fully click-through: an empty mask means every
-      // click passes straight through to whatever is underneath.
-      PanelWindow {
-        id: handWin
-        visible: bodyWin.visible
-        anchors { top: true; left: true; right: true }
-        implicitHeight: root.barPixels
-        color: "transparent"
-        WlrLayershell.namespace: "omarchy-gremlins-hands"
-        WlrLayershell.layer: WlrLayer.Overlay
-        WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
-        exclusionMode: ExclusionMode.Ignore
-        mask: Region {}
-
-        Sprite {
-          id: handSprite
-          sheet: Qt.resolvedUrl("assets/descend-big.png")
-          cols: 10; frameW: 247; frameH: 160; frames: root.spriteFrames; fps: 12
-          k: hangRoot.k
-          srcTop: hangRoot.frontTopRow
-          srcRows: hangRoot.frontRows
-          width: hangRoot.spriteW
-          height: Math.round(hangRoot.frontRows * hangRoot.k)
-          frame: hangRoot.frameIdx
-          opacity: hangRoot.fadeOpacity
-          x: Math.round((handWin.width - hangRoot.spriteW) * root.hangX)
-          y: root.barPixels - root.gripOverlap
-        }
-      }
     }
   }
 
