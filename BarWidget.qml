@@ -20,6 +20,7 @@ import Quickshell
 import Quickshell.Wayland
 import QtQuick
 import QtQuick.Window
+import QtMultimedia
 
 Item {
   id: root
@@ -48,6 +49,15 @@ Item {
   // Extra pixels below the bar, so the whole grin clears it. Separate from
   // spriteTopY on purpose: spriteTopY decides WHICH rows get drawn, this
   // decides WHERE they land, so nudging it down can't re-introduce the hands.
+  // ---- animated wallpaper ----
+  // "" | "tv" | "nineteen84" | "runners". A still most of the time; the video
+  // only decodes during the event. That is both the cheap design and the right
+  // one - a ten second dramatic beat on repeat becomes wallpaper you look away
+  // from, and the gag only lands if most of the time nothing is happening.
+  readonly property string wallpaper: (settings && settings.wallpaper) || ""
+  readonly property int    wallpaperEverySeconds: (settings && settings.wallpaperEverySeconds) || 60
+  readonly property bool   wallpaperFill: !(settings && settings.wallpaperFill === false)
+
   readonly property int  hangDrop: (settings && settings.hangDrop) !== undefined ? settings.hangDrop : 18
   readonly property int  spriteTopY: (settings && settings.spriteTopY) !== undefined ? settings.spriteTopY : -4
 
@@ -154,6 +164,106 @@ Item {
     sourceComponent: hangComp
     onLoaded: if (root.hangPending) { root.hangPending = false; item.arrive() }
   }
+  Loader {
+    id: wallL
+    active: root.wallpaper !== "" && root.ownsHang
+    sourceComponent: wallComp
+  }
+
+  Component {
+    id: wallComp
+    Item {
+      id: wallRoot
+      property bool playing: false
+      readonly property url stillSrc: Qt.resolvedUrl("assets/wallpapers/" + root.wallpaper + "-still.jpg")
+      readonly property url videoSrc: Qt.resolvedUrl("assets/wallpapers/" + root.wallpaper + ".mp4")
+
+      Timer {
+        id: wake
+        interval: root.wallpaperEverySeconds * 1000
+        repeat: true
+        running: true
+        onTriggered: wallRoot.playing = true
+      }
+
+      Variants {
+        model: Quickshell.screens
+        delegate: Component {
+          PanelWindow {
+            required property var modelData
+            screen: modelData
+            anchors { top: true; bottom: true; left: true; right: true }
+            // Transparent, never opaque. An opaque fullscreen surface that paints
+            // before its image loads is a black rectangle over the whole desktop -
+            // indistinguishable from a dead compositor, and permanent if the path
+            // is ever wrong. Transparent means a failed load costs nothing.
+            //
+            // Do NOT gate `visible` on the image having loaded: an invisible
+            // window never realises its scene graph, so the image never loads,
+            // so the window never becomes visible. Transparency is the safety
+            // net here, not visibility.
+            color: "transparent"
+            WlrLayershell.namespace: "omarchy-gremlins-wallpaper"
+            WlrLayershell.layer: WlrLayer.Bottom
+            WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+            exclusionMode: ExclusionMode.Ignore
+            mask: Region {}          // never takes a click
+
+            Image {
+              id: still
+              anchors.fill: parent
+              source: wallRoot.stillSrc
+              onStatusChanged: if (status === Image.Error)
+                console.warn("gremlins: wallpaper still failed to load:", wallRoot.stillSrc)
+              fillMode: root.wallpaperFill ? Image.PreserveAspectCrop : Image.PreserveAspectFit
+              cache: true
+              asynchronous: true
+            }
+
+            // True once the decoder has actually produced a frame. Revealing the
+            // sink on `playing` alone shows an empty surface for the decode
+            // latency - a black flash over the desktop, which is what made the
+            // hand-off look broken rather than instant.
+            property bool videoUp: false
+
+            VideoOutput {
+              id: vout
+              anchors.fill: parent
+              fillMode: root.wallpaperFill ? VideoOutput.PreserveAspectCrop : VideoOutput.PreserveAspectFit
+              visible: wallRoot.playing && videoUp
+            }
+
+            // Constructed only while the event runs, so nothing decodes at rest.
+            Loader {
+              active: wallRoot.playing
+              sourceComponent: MediaPlayer {
+                source: wallRoot.videoSrc
+                videoOutput: vout
+                audioOutput: null
+                loops: 1
+                Component.onCompleted: play()
+                onPositionChanged: if (position > 0) videoUp = true
+                onMediaStatusChanged: {
+                  // Every clip is cut so its last frame IS the still, so simply
+                  // dropping the video reveals an identical image underneath.
+                  if (mediaStatus === MediaPlayer.EndOfMedia) {
+                    wallRoot.playing = false
+                    videoUp = false
+                  }
+                  if (mediaStatus === MediaPlayer.InvalidMedia) {
+                    console.warn("gremlins: wallpaper cannot play", wallRoot.videoSrc, errorString)
+                    wallRoot.playing = false
+                    videoUp = false
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
   Loader { id: descendL; active: root.style === "descend"; anchors.fill: parent; sourceComponent: descendComp }
   Loader { id: peekL;    active: root.style === "peek";    anchors.fill: parent; sourceComponent: peekComp }
 
@@ -373,5 +483,7 @@ Item {
     onTriggered: { root.away = false; root.hangLive = false; root.hangPending = false; hangTeardown.stop(); nextPeek.restart() }
   }
 
-  Component.onCompleted: { nextPeek.interval = 7000; nextPeek.restart() }
+  Component.onCompleted: {
+    nextPeek.interval = 7000; nextPeek.restart()
+  }
 }
