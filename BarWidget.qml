@@ -48,7 +48,7 @@ Item {
   readonly property bool ownsHang:
     Quickshell.screens.length > 0 && Screen.name === Quickshell.screens[0].name
 
-  readonly property int spriteFrames: 112
+  readonly property int spriteFrames: 106
 
   // A sprite sheet played by translating one clipped Image.
   //
@@ -164,9 +164,9 @@ Item {
       Sprite {
         id: sprite
         sheet: Qt.resolvedUrl("assets/descend-big.png")
-        cols: 11; frameW: 261; frameH: 160; frames: root.spriteFrames; fps: 12
+        cols: 11; frameW: 247; frameH: 160; frames: root.spriteFrames; fps: 12
         height: root.hangHeight
-        width: Math.round(root.hangHeight * 261 / 160)
+        width: Math.round(root.hangHeight * 247 / 160)
         y: root.barPixels - root.gripOverlap
         x: Math.round((win.width - width) * root.hangX)
         MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.trigger() }
@@ -180,7 +180,7 @@ Item {
     Sprite {
       id: small
       sheet: Qt.resolvedUrl("assets/descend.png")
-      cols: 11; frameW: 78; frameH: 48; frames: root.spriteFrames; fps: 12
+      cols: 11; frameW: 74; frameH: 48; frames: root.spriteFrames; fps: 12
       height: root.height
       width: root.width
       opacity: root.away ? 0 : 1
