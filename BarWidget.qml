@@ -18,6 +18,17 @@ Item {
   readonly property int   sz: bar ? bar.barSize : 26
   readonly property string pluginId: "io.github.mrjamesmyers.gremlins"
 
+  // The overlay dismisses itself when the bumper ends, so the widget's idea of
+  // "playing" has to expire on its own or the next click would send hide to a
+  // surface that already left.
+  property bool playing: false
+
+  Timer {
+    id: resetPlaying
+    interval: 3600
+    onTriggered: root.playing = false
+  }
+
   implicitWidth:  Math.round(sz * 1.1)
   implicitHeight: sz
 
@@ -76,8 +87,18 @@ Item {
     onEntered: if (bar) bar.showTooltip(root, "Gremlins — click to replay the bumper")
     onExited:  if (bar) bar.hideTooltip(root)
 
-    // VERIFY ON BOX: confirm the CLI verb for summoning a plugin overlay.
-    // The manual documents `summon <id>` / `toggle <id>` over the shell's IPC socket.
-    onClicked: if (bar) bar.run("omarchy-shell toggle " + root.pluginId)
+    // The shell's IPC contract exposes summon/hide/rescanPlugins/listPlugins/
+    // putBarWidget. There is NO toggle method - an earlier version called one and
+    // failed silently, because bar.run() is fire-and-forget and swallows the error.
+    onClicked: {
+      if (!bar) return
+      if (root.playing) {
+        bar.run("omarchy-shell hide " + root.pluginId)
+      } else {
+        bar.run("omarchy-shell summon " + root.pluginId + " '{}'")
+      }
+      root.playing = !root.playing
+      resetPlaying.restart()
+    }
   }
 }
