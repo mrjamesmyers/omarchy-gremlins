@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.mrjamesmyers.cast",
+  "name": "Cast",
+  "version": "0.1.0",
+  "author": "James Myers",
+  "license": "MIT",
+  "description": "Put it on the big screen. Cast finds the Chromecasts, Google TVs and DLNA televisions on your network and plays local files or URLs on them, with transport controls in the bar. Speaks the Google Cast protocol natively - no browser, no account, no helper app on the TV.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Cast",
+    "category": "Media",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "hideWhenIdle": false,
+      "rescanSeconds": 300,
+      "lastTarget": ""
+    },
+    "schema": [
+      {
+        "key": "hideWhenIdle",
+        "type": "boolean",
+        "label": "Hide when nothing is casting",
+        "defaultValue": false,
+        "description": "Keep the bar clean. The widget reappears the moment something is playing."
+      },
+      {
+        "key": "rescanSeconds",
+        "type": "integer",
+        "label": "Rescan every (seconds)",
+        "defaultValue": 300,
+        "description": "How often to look for new devices in the background. Discovery is two multicast questions; it is cheap, but it is not free."
+      },
+      {
+        "key": "lastTarget",
+        "type": "string",
+        "label": "Remembered device",
+        "defaultValue": "",
+        "description": "The device used last, offered first next time. Managed automatically."
+      }
+    ]
+  }
+}
