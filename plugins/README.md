@@ -60,3 +60,19 @@ shipped — each written up in the plugin's own README.
 A network daemon that binds a port does not want three of itself, so the core
 sits behind `Loader { active: ownsDaemon }` and only the first screen's copy
 runs it. Same guard the Gremlins widget uses for its hanging window.
+
+## Testing on real hardware
+
+The helper suites run anywhere. What they cannot do is meet a real printer, a
+real sound card or a real Chromecast, because a CI container has none of those.
+
+On an actual Omarchy machine:
+
+```bash
+tools/smoke-test.sh              # all five
+tools/smoke-test.sh paper        # just one
+```
+
+It starts each helper, watches its event stream for a few seconds, prints what
+came back, and stops it. Read-only throughout: nothing is printed, cast, sent
+or changed. It is the half of the testing a cloud container cannot do.

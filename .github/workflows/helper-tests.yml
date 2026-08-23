@@ -5,8 +5,12 @@ name: Helper tests
 # the protocol work, and they are fully testable on a bare runner.
 
 on:
+  # Only main on push. A branch with an open PR would otherwise run the whole
+  # matrix twice for one commit - push and pull_request land in different
+  # concurrency groups, so neither cancels the other - and this runs on one
+  # machine in somebody's garage, not on a farm.
   push:
-    branches: ["**"]
+    branches: [main]
     paths:
       - "plugins/**"
       - ".github/workflows/helper-tests.yml"
@@ -94,3 +98,73 @@ jobs:
       - name: Clean up bytecode
         if: always()
         run: find plugins -name __pycache__ -type d -prune -exec rm -rf {} + || true
+
+  qml:
+    name: QML
+    runs-on: self-hosted
+
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Locate qmllint and the Omarchy shell
+        id: qt
+        run: |
+          set -euo pipefail
+          lint=""
+          for candidate in qmllint6 qmllint /usr/lib/qt6/bin/qmllint; do
+            if command -v "$candidate" >/dev/null 2>&1; then lint="$candidate"; break; fi
+            if [ -x "$candidate" ]; then lint="$candidate"; break; fi
+          done
+
+          # qs.Commons and qs.Ui are Omarchy's own QML modules. Without the
+          # shell directory on the import path every file "fails" on imports
+          # that are perfectly valid inside the running shell.
+          shell_dir=""
+          for candidate in "${OMARCHY_PATH:-}/shell" /usr/share/omarchy/shell \
+                           "$HOME/.local/share/omarchy/shell"; do
+            if [ -n "$candidate" ] && [ -d "$candidate" ]; then shell_dir="$candidate"; break; fi
+          done
+
+          echo "lint=$lint"           >> "$GITHUB_OUTPUT"
+          echo "shell_dir=$shell_dir" >> "$GITHUB_OUTPUT"
+          echo "qmllint:     ${lint:-not found}"
+          echo "shell import path: ${shell_dir:-not found}"
+
+      - name: Lint the QML
+        if: steps.qt.outputs.lint != ''
+        run: |
+          set -uo pipefail
+          lint="${{ steps.qt.outputs.lint }}"
+          shell_dir="${{ steps.qt.outputs.shell_dir }}"
+          args=""
+          [ -n "$shell_dir" ] && args="-I $shell_dir"
+
+          report="$(mktemp)"
+          for file in $(find plugins -name '*.qml' | sort); do
+            echo "::group::$file"
+            # shellcheck disable=SC2086
+            $lint $args "$file" 2>&1 | tee -a "$report" || true
+            echo "::endgroup::"
+          done
+
+          # Fail on genuine errors only. Unresolved-type and unqualified-access
+          # warnings are expected here: the shell injects `bar`, `settings` and
+          # `moduleName` into every widget at runtime, and no static pass can
+          # see that. A syntax error is real and would stop the plugin loading.
+          if grep -E "^.*:[0-9]+:[0-9]+: error:" "$report"; then
+            echo "::error::qmllint reported syntax errors above"
+            exit 1
+          fi
+          warnings="$(grep -cE "warning:" "$report" || true)"
+          echo "no syntax errors. ${warnings} warning(s) - see the groups above."
+
+      - name: Say so if qmllint is missing
+        if: steps.qt.outputs.lint == ''
+        run: |
+          echo "::warning::qmllint not found on this runner, so the QML was not \
+          checked. It ships with qt6-declarative, which Omarchy already has."
