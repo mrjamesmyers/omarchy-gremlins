@@ -39,6 +39,9 @@ Item {
   readonly property int  hangHeight: (settings && settings.hangHeight) || 190
   readonly property real hangX: (settings && settings.hangX) !== undefined ? settings.hangX : 0.74
   readonly property int  barPixels: (settings && settings.barPixels) || 43
+  // How far the creature reaches up over the bar, so its fingers grip the bar
+  // itself rather than dangling below it.
+  readonly property int  gripOverlap: (settings && settings.gripOverlap) !== undefined ? settings.gripOverlap : 26
 
   // The bar is instantiated once per monitor, so without this every instance
   // spawns its own hanging window and they stack invisibly.
@@ -68,6 +71,13 @@ Item {
 
     clip: true
     readonly property real k: height > 0 ? height / frameH : 1
+
+    // Fade the tail. Even with a clean exit in the source, cutting straight to
+    // nothing on the last frame reads as the animation breaking rather than
+    // finishing.
+    property int fadeFrames: 6
+    opacity: (ticker.running && sp.frame > sp.frames - sp.fadeFrames)
+             ? Math.max(0, (sp.frames - sp.frame) / sp.fadeFrames) : 1
     implicitWidth: Math.round(frameW * k)
 
     Image {
@@ -142,7 +152,7 @@ Item {
       implicitHeight: root.barPixels + root.hangHeight
       color: "transparent"
       WlrLayershell.namespace: "omarchy-gremlins-hang"
-      WlrLayershell.layer: WlrLayer.Top
+      WlrLayershell.layer: WlrLayer.Overlay
       WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
       exclusionMode: ExclusionMode.Ignore
       mask: Region { item: sprite }   // only the creature takes clicks
@@ -157,7 +167,7 @@ Item {
         cols: 11; frameW: 208; frameH: 160; frames: root.spriteFrames; fps: 12
         height: root.hangHeight
         width: Math.round(root.hangHeight * 208 / 160)
-        y: root.barPixels
+        y: root.barPixels - root.gripOverlap
         x: Math.round((win.width - width) * root.hangX)
         MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.trigger() }
       }
