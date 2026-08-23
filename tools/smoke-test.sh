@@ -200,6 +200,71 @@ smoke_lens() {
   rm -f "$out"
 }
 
+# ---------------------------------------------------------------- ink
+smoke_ink() {
+  say "${bold}Ink${off} ${dim}(PDF)${off}"
+  local h="$root/plugins/omarchy-ink/helper/inkd.py"
+  local out; out="$(capture "$h" '{"cmd":"refresh"}')"
+  grep -q '"ev":"ready"' "$out" && ok "helper started" || bad "never emitted ready"
+  # Page rendering is the one part that depends on the Qt build.
+  if [ -d /usr/lib/qt6/qml/QtQuick/Pdf ] || [ -d /usr/lib/qt6/qml/QtQuick/Pdf.qmltypes ]; then
+    ok "QtQuick.Pdf present - multi-page editing available"
+  else
+    soft "QtQuick.Pdf not found - first page only (qt6-webengine or qt6-pdf provides it)"
+  fi
+  ls /usr/lib/qt6/plugins/imageformats/ 2>/dev/null | grep -qi pdf \
+    && ok "Qt PDF image plugin present" || soft "no Qt PDF image plugin"
+  rm -f "$out"
+}
+
+# ---------------------------------------------------------------- type
+smoke_type() {
+  say "${bold}Type${off} ${dim}(fonts)${off}"
+  need fc-list || { bad "fontconfig missing"; return; }
+  local h="$root/plugins/omarchy-type/helper/typed.py"
+  local out; out="$(capture "$h" '{"cmd":"refresh"}')"
+  local n; n="$(summarise "$out" fonts families | head -1)"
+  if [ -n "$n" ] && [ "$n" != "0" ]; then ok "$n font families found"
+  else bad "no fonts listed, which cannot be right on a working desktop"; fi
+  rm -f "$out"
+}
+
+# ---------------------------------------------------------------- twin
+smoke_twin() {
+  say "${bold}Twin${off} ${dim}(duplicates)${off}"
+  local h="$root/plugins/omarchy-twin/helper/twind.py"
+  local out; out="$(capture "$h" '{"cmd":"refresh"}')"
+  grep -q '"ev":"ready"' "$out" && ok "helper started (scan not run - it reads your disk)" \
+                                || bad "never emitted ready"
+  rm -f "$out"
+}
+
+# ---------------------------------------------------------------- relay
+# Not a plugin yet - this reports what a cross-machine input plugin would have
+# to build against, which cannot be discovered from a container.
+smoke_relay() {
+  say "${bold}Relay${off} ${dim}(cross-machine input - probe only)${off}"
+  if ! need lan-mouse; then
+    soft "lan-mouse not installed  (pacman -S lan-mouse)"
+  else
+    ok "lan-mouse present: $(lan-mouse --version 2>/dev/null | head -1)"
+    say "${dim}  --- lan-mouse cli help ---${off}"
+    lan-mouse cli help 2>&1 | sed 's/^/    /' | head -30
+    for c in "$HOME/.config/lan-mouse/config.toml" "$HOME/.config/lan-mouse/lan-mouse.toml"; do
+      [ -f "$c" ] && { ok "config at $c"; sed 's/^/    /' "$c" | head -20; }
+    done
+  fi
+  if need deskflow; then ok "deskflow also present"; fi
+  # Hyprland must expose the protocols the receiving side needs.
+  if need hyprctl; then
+    if hyprctl systeminfo 2>/dev/null | grep -qi "virtual.pointer\|virtual.keyboard"; then
+      ok "compositor advertises virtual input protocols"
+    else
+      soft "could not confirm virtual-pointer/virtual-keyboard from hyprctl"
+    fi
+  fi
+}
+
 # ---------------------------------------------------------------- unifi
 smoke_unifi() {
   say "${bold}UniFi${off}"
@@ -225,7 +290,7 @@ say "${bold}Omarchy plugin smoke test${off} ${dim}- $seconds s per helper, read-
 say "${dim}$(uname -srm) | $(python3 --version 2>&1)${off}"
 say ""
 
-for name in beam cast paper mixer lens unifi; do
+for name in beam cast paper mixer lens ink type twin relay unifi; do
   if [ -n "$only" ] && [ "$only" != "$name" ]; then continue; fi
   "smoke_$name"
   say ""
