@@ -2,11 +2,15 @@
   "schemaVersion": 1,
   "id": "io.github.mrjamesmyers.gremlins",
   "name": "Gremlins",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "James Myers",
   "license": "MIT",
-  "description": "A boot bumper for Quattro. Gremlins haul pixel crumbs across your screen and scream OMACHEE, once, then the last frame becomes your wallpaper.",
-  "kinds": ["service", "overlay", "bar-widget"],
+  "description": "A boot bumper and animated wallpapers for Quattro. Gremlins haul pixel crumbs across your screen, once, then get out of the way. Nine scenes, each cut so the animation begins and ends on the still it hands back to.",
+  "kinds": [
+    "service",
+    "overlay",
+    "bar-widget"
+  ],
   "entryPoints": {
     "service": "Service.qml",
     "overlay": "Overlay.qml",
@@ -16,6 +20,59 @@
     "displayName": "Gremlins",
     "category": "Fun",
     "allowMultiple": false,
-    "defaultSection": "right"
+    "defaultSection": "right",
+    "defaults": {
+      "style": "hang",
+      "wallpaper": "",
+      "wallpaperEverySeconds": 60,
+      "wallpaperFill": true
+    },
+    "schema": [
+      {
+        "key": "style",
+        "type": "enum",
+        "label": "Gremlin style",
+        "options": [
+          "hang",
+          "descend",
+          "peek"
+        ],
+        "defaultValue": "hang",
+        "description": "Where the creature lives: hanging off the bar over your wallpaper, climbing down inside the bar cell, or just its eyes over the bar's lower edge."
+      },
+      {
+        "key": "wallpaper",
+        "type": "enum",
+        "label": "Animated wallpaper",
+        "options": [
+          "",
+          "tv",
+          "nineteen84",
+          "runners",
+          "viking",
+          "highlands",
+          "ycombinator",
+          "seventies",
+          "pumpkin",
+          "raptor"
+        ],
+        "defaultValue": "",
+        "description": "A still holds the desktop; the scene plays occasionally and hands the still straight back. Empty means off."
+      },
+      {
+        "key": "wallpaperEverySeconds",
+        "type": "integer",
+        "label": "Play every (seconds)",
+        "defaultValue": 60,
+        "description": "How long the still rests between plays."
+      },
+      {
+        "key": "wallpaperFill",
+        "type": "boolean",
+        "label": "Fill the screen",
+        "defaultValue": true,
+        "description": "Crop the scene to fill the display. Off letterboxes it instead."
+      }
+    ]
   }
 }

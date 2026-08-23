@@ -21,6 +21,8 @@ import Quickshell.Wayland
 import QtQuick
 import QtQuick.Window
 import QtMultimedia
+import qs.Commons
+import qs.Ui
 
 Item {
   id: root
@@ -29,6 +31,45 @@ Item {
   property var    bar
   property string moduleName
   property var    settings
+
+  // Anchor for the settings card. In "hang" style the bar cell is 6px wide,
+  // which anchors fine but is a hopeless right-click target, so the card
+  // anchors to the full cell instead.
+  Item { id: anchorCell; anchors.fill: parent }
+
+  Loader {
+    id: settingsLoader
+    active: true
+    visible: false
+    source: Qt.resolvedUrl("SettingsPanel.qml")
+    onLoaded: { root.injectPanel(); Qt.callLater(root.injectPanel) }
+  }
+
+  function injectPanel() {
+    var t = settingsLoader.item
+    if (!t) return
+    if ("bar"        in t) t.bar        = root.bar
+    if ("settings"   in t) t.settings   = root.settings
+    if ("anchorItem" in t) t.anchorItem = anchorCell
+    if ("hostWidget" in t) t.hostWidget = root
+    if ("primary"    in t) t.primary    = root.ownsHang
+  }
+  onBarChanged: injectPanel()
+  onSettingsChanged: injectPanel()
+
+  function openSettings() { if (settingsLoader.item) settingsLoader.item.toggle() }
+
+  // Play the wallpaper scene immediately, so picking one in the settings panel
+  // can be confirmed without sitting through the interval. No-op when the
+  // wallpaper is off, because the Loader is then inactive.
+  signal wallpaperPlayRequested()
+  function playWallpaperNow() { root.wallpaperPlayRequested() }
+
+  // Shape contract for the bar's panel plumbing. Inert today because this
+  // plugin declares `overlay` in kinds, but correct if that ever changes.
+  readonly property bool opened: settingsLoader.item ? settingsLoader.item.opened === true : false
+  function open()  { if (settingsLoader.item) settingsLoader.item.open() }
+  function close() { if (settingsLoader.item) settingsLoader.item.close() }
 
   readonly property int    sz: bar ? bar.barSize : 26
   readonly property string pluginId: "io.github.mrjamesmyers.gremlins"
@@ -184,6 +225,14 @@ Item {
         repeat: true
         running: true
         onTriggered: wallRoot.playing = true
+      }
+
+      Connections {
+        target: root
+        function onWallpaperPlayRequested() {
+          wallRoot.playing = true
+          wake.restart()          // don't fire again straight after a manual play
+        }
       }
 
       Variants {
@@ -348,7 +397,15 @@ Item {
           height: Math.round((160 - hangRoot.bodyTopRow) * hangRoot.k)
           x: Math.round((bodyWin.width - hangRoot.spriteW) * root.hangX)
           y: root.barPixels + root.hangDrop
-          MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.trigger() }
+          MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            acceptedButtons: Qt.LeftButton | Qt.RightButton
+            onClicked: function (m) {
+              if (m.button === Qt.RightButton) root.openSettings()
+              else root.trigger()
+            }
+          }
         }
       }
 
@@ -466,15 +523,19 @@ Item {
     anchors.fill: parent
     hoverEnabled: true
     cursorShape: Qt.PointingHandCursor
+    acceptedButtons: Qt.LeftButton | Qt.RightButton
     onEntered: {
-      if (bar) bar.showTooltip(root, "Gremlins - click to replay the bumper")
+      if (bar) bar.showTooltip(root, "Gremlins - click to replay, right-click for settings")
       if (!root.away && !root.watching) root.arrive()
     }
     onExited: {
       if (bar) bar.hideTooltip(root)
 
     }
-    onClicked: root.trigger()
+    onClicked: function (m) {
+      if (m.button === Qt.RightButton) root.openSettings()
+      else root.trigger()
+    }
   }
 
   Timer {
