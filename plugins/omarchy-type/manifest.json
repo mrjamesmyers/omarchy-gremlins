@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.mrjamesmyers.type",
+  "name": "Type",
+  "version": "0.1.0",
+  "author": "James Myers",
+  "license": "MIT",
+  "description": "Font Book for Omarchy. Every family on the machine, previewed in your own words, in your own theme. Drop a font file on the bar to install it, switch one off without uninstalling it, and remove the ones you added. Never touches a system directory and never asks for a password.",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "BarWidget.qml" },
+  "barWidget": {
+    "displayName": "Type",
+    "category": "Appearance",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": { "sample": "", "previewSize": 22, "onlyMine": false },
+    "schema": [
+      { "key": "sample", "type": "string", "label": "Preview text", "defaultValue": "",
+        "description": "What every font spells out. Empty uses a pangram, which is the point of a pangram." },
+      { "key": "previewSize", "type": "integer", "label": "Preview size", "defaultValue": 22,
+        "description": "Point size for the sample line." },
+      { "key": "onlyMine", "type": "boolean", "label": "Only fonts I installed", "defaultValue": false,
+        "description": "Hide the ones that came with the system, which is most of them." }
+    ]
+  }
+}

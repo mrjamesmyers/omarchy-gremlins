@@ -46,7 +46,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        plugin: [omarchy-beam, omarchy-cast, omarchy-ink, omarchy-lens, omarchy-mixer, omarchy-paper, omarchy-unifi]
+        plugin: [omarchy-beam, omarchy-cast, omarchy-ink, omarchy-lens, omarchy-mixer, omarchy-paper, omarchy-twin, omarchy-type, omarchy-unifi]
 
     steps:
       - name: Check out
