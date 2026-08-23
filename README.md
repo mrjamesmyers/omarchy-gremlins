@@ -19,7 +19,7 @@ shell process, so read the source before you enable anything, including this.
 
 ## What it does
 
-- **Plays once on login.** Not a loop, not a screensaver. Three seconds, then nothing.
+- **Plays once on login, on every screen.** Not a loop, not a screensaver. Three seconds, then nothing.
 - **Comes with matching wallpapers.** The bumper flashes to white and hands you back your
   desktop. Two companion backgrounds from the same world ship alongside it — gremlins
   wandering off with your pixels — so the desktop can read as the continuation of the
@@ -115,10 +115,9 @@ rotation instead, drop them in `~/.config/omarchy/backgrounds/<your-theme>/`.
 
 ## Known limits
 
-- **Single monitor.** The overlay creates one `PanelWindow`, so on a multi-head setup the
-  bumper plays on one screen rather than all of them. Fixing that means a player per output;
-  it's on the list, it isn't in 0.1.
 - Tested on Omarchy 4.0.0 with a 1920x1080 + 3840x2160 pair.
+- Every output gets its own decoder, so CPU scales with monitor count (~5% each, for three
+  seconds). Fine at two or three screens; silly at eight.
 
 ## Non-goals
 
