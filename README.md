@@ -24,11 +24,12 @@ shell process, so read the source before you enable anything, including this.
   desktop. Two companion backgrounds from the same world ship alongside it — gremlins
   wandering off with your pixels — so the desktop can read as the continuation of the
   animation. **You install them; the plugin never touches your wallpaper on its own.**
-- **Something lives behind your bar.** Every minute or two it hooks its head over the edge,
-  watches for a few seconds, ducks, glances around, and drops out of sight. Hover and it
-  notices you. Click to replay the bumper — and it leaves, because it's on your screen now.
-  It's a cut-out, so it reads correctly on a dark bar, a light theme, or a transparent bar
-  over a busy wallpaper.
+- **Something climbs down into your bar.** Every minute or two a hand reaches down from
+  above and grips the edge, then the other, then it lowers itself in upside down and hangs
+  there watching you. When it leaves it climbs back up the way it came. Hover and it notices
+  you. Click to replay the bumper — and it goes, because it's on your screen now.
+  It's a real cut-out with 8-bit alpha, so it reads correctly on a dark bar, a light theme,
+  or a transparent bar over a busy wallpaper.
 - **Loops only if you ask.** There's a setting. It's off by default, and it should be.
 
 ## Why it's shaped like this
@@ -84,6 +85,7 @@ Inline on the plugin entry in `~/.config/omarchy/shell.json`:
 | `playOnLogin` | `true` | Play once when the shell starts |
 | `loop` | `false` | Keep playing forever. Costs GPU. Off for a reason. |
 | `sound` | `true` | The scream |
+| `style` | `"descend"` | `"descend"` (climbs in upside down) or `"peek"` (hooks its head over the edge) |
 | `peekMinSeconds` | `45` | Shortest gap between appearances |
 | `peekMaxSeconds` | `120` | Longest gap between appearances |
 
