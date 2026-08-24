@@ -127,6 +127,11 @@ jobs:
         id: qt
         run: |
           set -euo pipefail
+
+          # A self-hosted runner reuses its workspace, so start this fresh
+          # rather than appending to whatever a previous run left behind.
+          : >qml-locate.log
+
           lint=""
           for candidate in qmllint6 qmllint /usr/lib/qt6/bin/qmllint; do
             if command -v "$candidate" >/dev/null 2>&1; then lint="$candidate"; break; fi
@@ -150,7 +155,7 @@ jobs:
                            "$HOME/.local/share/omarchy/shell"; do
             [ "$candidate" = "/shell" ] && continue
             if [ -d "$candidate" ]; then shell_dir="$candidate"; break; fi
-            echo "  tried $candidate - not a directory"
+            echo "  tried $candidate - not a directory" | tee -a qml-locate.log
           done
 
           # Last resort, and the only one that does not depend on guessing a
@@ -160,9 +165,9 @@ jobs:
               awk '{print $2}' | grep -m1 -E '/shell/$' || true)
             if [ -n "$packaged" ] && [ -d "$packaged" ]; then
               shell_dir="${packaged%/}"
-              echo "  found via pacman -Ql omarchy: $shell_dir"
+              echo "  found via pacman -Ql omarchy: $shell_dir" | tee -a qml-locate.log
             else
-              echo "  pacman -Ql omarchy did not name a shell directory either"
+              echo "  pacman -Ql omarchy did not name a shell directory either" | tee -a qml-locate.log
             fi
           fi
 
@@ -204,6 +209,11 @@ jobs:
           # properties or types. That is worth knowing rather than reading as a
           # clean bill of health, but it is not a reason to fail the build.
           failed_imports="$(grep -ciE "Failed to import qs\." "$report" || true)"
+          if [ -s qml-locate.log ]; then
+            echo "where the Omarchy shell was looked for:"
+            cat qml-locate.log
+          fi
+
           if [ "$failed_imports" -gt 0 ]; then
             echo "::warning::qs.Commons/qs.Ui did not resolve (${failed_imports} \
             unresolved imports), so this was a syntax check only. Set OMARCHY_PATH \
