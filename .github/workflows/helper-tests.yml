@@ -153,8 +153,15 @@ jobs:
           for candidate in "${session_path:-}/shell" "${OMARCHY_PATH:-}/shell" \
                            /usr/share/omarchy/shell \
                            "$HOME/.local/share/omarchy/shell"; do
-            [ "$candidate" = "/shell" ] && continue
-            if [ -d "$candidate" ]; then shell_dir="$candidate"; break; fi
+            if [ "$candidate" = "/shell" ]; then
+              echo "  skipped an unset path variable" | tee -a qml-locate.log
+              continue
+            fi
+            if [ -d "$candidate" ]; then
+              shell_dir="$candidate"
+              echo "  found $candidate" | tee -a qml-locate.log
+              break
+            fi
             echo "  tried $candidate - not a directory" | tee -a qml-locate.log
           done
 
@@ -183,7 +190,20 @@ jobs:
           lint="${{ steps.qt.outputs.lint }}"
           shell_dir="${{ steps.qt.outputs.shell_dir }}"
           args=""
-          [ -n "$shell_dir" ] && args="-I $shell_dir"
+          if [ -n "$shell_dir" ]; then
+            # The plugins import qs.Commons and qs.Ui. qmllint looks those up as
+            # <import path>/qs/Commons/qmldir, but Omarchy keeps Commons/ and
+            # Ui/ at the root of its shell directory -- Quickshell maps that root
+            # onto the `qs` namespace itself at runtime. Passing the shell
+            # directory directly therefore never resolves them, however correct
+            # the path is. Recreate the mapping with a symlink instead.
+            qs_root="${RUNNER_TEMP:-/tmp}/omarchy-qml-import"
+            rm -rf "$qs_root"
+            mkdir -p "$qs_root"
+            ln -s "$shell_dir" "$qs_root/qs"
+            args="-I $qs_root"
+            echo "import path: $qs_root (qs -> $shell_dir)"
+          fi
 
           report="$(mktemp)"
           for file in $(find plugins -name '*.qml' | sort); do
@@ -216,8 +236,7 @@ jobs:
 
           if [ "$failed_imports" -gt 0 ]; then
             echo "::warning::qs.Commons/qs.Ui did not resolve (${failed_imports} \
-            unresolved imports), so this was a syntax check only. Set OMARCHY_PATH \
-            for the runner to lint against real types."
+            unresolved imports), so this was a syntax check only, not a type check."
           fi
 
       - name: Say so if qmllint is missing
