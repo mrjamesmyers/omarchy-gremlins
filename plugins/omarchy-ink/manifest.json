@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.mrjamesmyers.ink",
+  "name": "Ink",
+  "version": "0.1.0",
+  "author": "James Myers",
+  "license": "MIT",
+  "description": "Sign and fill a PDF without leaving the desktop. Drop a document on the bar, draw your signature, type into the blanks, save. The original file is never rewritten - the annotated copy contains it byte for byte, as an incremental update.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Ink",
+    "category": "Productivity",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "inkColour": "#1a1a1a",
+      "inkWidth": 2.5,
+      "textSize": 12,
+      "saveBeside": true
+    },
+    "schema": [
+      {
+        "key": "inkColour",
+        "type": "string",
+        "label": "Ink colour",
+        "defaultValue": "#1a1a1a",
+        "description": "The colour you sign in. Near-black rather than pure black, which is what a real pen looks like on a scan."
+      },
+      {
+        "key": "inkWidth",
+        "type": "number",
+        "label": "Pen width",
+        "defaultValue": 2.5,
+        "description": "Stroke width in points at 100% zoom."
+      },
+      {
+        "key": "textSize",
+        "type": "integer",
+        "label": "Text size",
+        "defaultValue": 12,
+        "description": "Point size for typed text, which is about right for most form fields."
+      },
+      {
+        "key": "saveBeside",
+        "type": "boolean",
+        "label": "Save next to the original",
+        "defaultValue": true,
+        "description": "Writes name-signed.pdf beside the source. The source is never modified either way."
+      }
+    ]
+  }
+}

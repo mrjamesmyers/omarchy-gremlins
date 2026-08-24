@@ -1,0 +1,310 @@
+name: Helper tests
+
+# The plugins are QML plus one standard-library Python helper each. The QML
+# needs a compositor and cannot run here; the helpers are the half that carries
+# the protocol work, and they are fully testable on a bare runner.
+
+on:
+  # Only main on push. A branch with an open PR would otherwise run the whole
+  # matrix twice for one commit - push and pull_request land in different
+  # concurrency groups, so neither cancels the other - and this runs on one
+  # machine in somebody's garage, not on a farm.
+  push:
+    branches: [main]
+    paths:
+      - "plugins/**"
+      - "upstream/**"
+      - ".github/workflows/helper-tests.yml"
+  pull_request:
+    paths:
+      - "plugins/**"
+      - "upstream/**"
+      - ".github/workflows/helper-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# The Beam suite binds fixed ports (53517 and 53518) so it can run a node
+# without fighting a real LocalSend for 53317. Two jobs on the same self-hosted
+# runner would collide on those, so runs are serialised per ref.
+concurrency:
+  group: helper-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  helpers:
+    name: ${{ matrix.plugin }}
+    runs-on: self-hosted
+
+    # A self-hosted runner executes whatever the workflow says on hardware you
+    # own. On a public repository a pull request from a fork could otherwise
+    # run arbitrary code there, so fork PRs are skipped: they still get review,
+    # they just do not get your machine.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+
+    strategy:
+      fail-fast: false
+      matrix:
+        plugin: [omarchy-beam, omarchy-cast, omarchy-ink, omarchy-lens, omarchy-mixer, omarchy-paper, omarchy-twin, omarchy-type, omarchy-unifi]
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Report the toolchain
+        run: |
+          set -euo pipefail
+          echo "runner:  $(uname -srm)"
+          echo "python:  $(python3 --version)"
+          echo "openssl: $(openssl version)"
+
+      - name: Verify the manifest
+        run: |
+          set -euo pipefail
+          python3 - "plugins/${{ matrix.plugin }}" <<'PY'
+          import json, os, sys
+          base = sys.argv[1]
+          manifest = json.load(open(os.path.join(base, "manifest.json")))
+          for field in ("schemaVersion", "id", "name", "version", "kinds", "entryPoints"):
+              assert field in manifest, "manifest is missing %s" % field
+          for kind, entry in manifest["entryPoints"].items():
+              path = os.path.join(base, entry)
+              assert os.path.exists(path), "%s entry point %s does not exist" % (kind, entry)
+          assert not manifest["id"].startswith("omarchy."), \
+              "the omarchy.* namespace is reserved for first-party plugins"
+          print("%s %s - manifest ok" % (manifest["name"], manifest["version"]))
+          PY
+
+      - name: Byte-compile the helper
+        run: python3 -m compileall -q "plugins/${{ matrix.plugin }}/helper"
+
+      - name: Check generated files are current
+        run: |
+          set -euo pipefail
+          gen="plugins/${{ matrix.plugin }}/shaders/generate.py"
+          if [ -f "$gen" ]; then
+            python3 "$gen" --check
+          else
+            echo "nothing generated for ${{ matrix.plugin }}"
+          fi
+
+      - name: Run the helper tests
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          suites=(plugins/${{ matrix.plugin }}/helper/test_*.py)
+          if [ ${#suites[@]} -eq 0 ]; then
+            echo "no test suite for ${{ matrix.plugin }}" >&2
+            exit 1
+          fi
+          for suite in "${suites[@]}"; do
+            echo "::group::$suite"
+            python3 "$suite"
+            echo "::endgroup::"
+          done
+
+      - name: Clean up bytecode
+        if: always()
+        run: find plugins -name __pycache__ -type d -prune -exec rm -rf {} + || true
+
+  qml:
+    name: QML
+    runs-on: self-hosted
+
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Locate qmllint and the Omarchy shell
+        id: qt
+        run: |
+          set -euo pipefail
+
+          # A self-hosted runner reuses its workspace, so start this fresh
+          # rather than appending to whatever a previous run left behind.
+          : >qml-locate.log
+
+          lint=""
+          for candidate in qmllint6 qmllint /usr/lib/qt6/bin/qmllint; do
+            if command -v "$candidate" >/dev/null 2>&1; then lint="$candidate"; break; fi
+            if [ -x "$candidate" ]; then lint="$candidate"; break; fi
+          done
+
+          # qs.Commons and qs.Ui are Omarchy's own QML modules. Without the
+          # shell directory on the import path every file "fails" on imports
+          # that are perfectly valid inside the running shell.
+          # A live session records its OMARCHY_PATH in the systemd user
+          # environment, and that is where omarchy-restart-shell itself reads it
+          # from. The runner is a system service, so it needs XDG_RUNTIME_DIR
+          # pointed at the user bus before it can ask.
+          session_path=$(XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" \
+            systemctl --user show-environment 2>/dev/null |
+            sed -n 's/^OMARCHY_PATH=//p' | tail -n 1)
+
+          shell_dir=""
+          for candidate in "${session_path:-}/shell" "${OMARCHY_PATH:-}/shell" \
+                           /usr/share/omarchy/shell \
+                           "$HOME/.local/share/omarchy/shell"; do
+            if [ "$candidate" = "/shell" ]; then
+              echo "  skipped an unset path variable" | tee -a qml-locate.log
+              continue
+            fi
+            if [ -d "$candidate" ]; then
+              shell_dir="$candidate"
+              echo "  found $candidate" | tee -a qml-locate.log
+              break
+            fi
+            echo "  tried $candidate - not a directory" | tee -a qml-locate.log
+          done
+
+          # Last resort, and the only one that does not depend on guessing a
+          # layout: ask the package manager where omarchy actually put its shell.
+          if [ -z "$shell_dir" ] && command -v pacman >/dev/null 2>&1; then
+            packaged=$(pacman -Ql omarchy 2>/dev/null |
+              awk '{print $2}' | grep -m1 -E '/shell/$' || true)
+            if [ -n "$packaged" ] && [ -d "$packaged" ]; then
+              shell_dir="${packaged%/}"
+              echo "  found via pacman -Ql omarchy: $shell_dir" | tee -a qml-locate.log
+            else
+              echo "  pacman -Ql omarchy did not name a shell directory either" | tee -a qml-locate.log
+            fi
+          fi
+
+          echo "lint=$lint"           >> "$GITHUB_OUTPUT"
+          echo "shell_dir=$shell_dir" >> "$GITHUB_OUTPUT"
+          echo "qmllint:     ${lint:-not found}"
+          echo "shell import path: ${shell_dir:-not found}"
+
+      - name: Lint the QML
+        if: steps.qt.outputs.lint != ''
+        run: |
+          set -uo pipefail
+          lint="${{ steps.qt.outputs.lint }}"
+          shell_dir="${{ steps.qt.outputs.shell_dir }}"
+          args=""
+          if [ -n "$shell_dir" ]; then
+            # The plugins import qs.Commons and qs.Ui. qmllint looks those up as
+            # <import path>/qs/Commons/qmldir, but Omarchy keeps Commons/ and
+            # Ui/ at the root of its shell directory -- Quickshell maps that root
+            # onto the `qs` namespace itself at runtime. Passing the shell
+            # directory directly therefore never resolves them, however correct
+            # the path is. Recreate the mapping with a symlink instead.
+            qs_root="${RUNNER_TEMP:-/tmp}/omarchy-qml-import"
+            rm -rf "$qs_root"
+            mkdir -p "$qs_root"
+            ln -s "$shell_dir" "$qs_root/qs"
+            args="-I $qs_root"
+            echo "import path: $qs_root (qs -> $shell_dir)"
+          fi
+
+          report="$(mktemp)"
+          for file in $(find plugins -name '*.qml' | sort); do
+            echo "::group::$file"
+            # shellcheck disable=SC2086
+            $lint $args "$file" 2>&1 | tee -a "$report" || true
+            echo "::endgroup::"
+          done
+
+          # Fail on genuine errors only. Unresolved-type and unqualified-access
+          # warnings are expected here: the shell injects `bar`, `settings` and
+          # `moduleName` into every widget at runtime, and no static pass can
+          # see that. A syntax error is real and would stop the plugin loading.
+          if grep -E "^.*:[0-9]+:[0-9]+: error:" "$report"; then
+            echo "::error::qmllint reported syntax errors above"
+            exit 1
+          fi
+          warnings="$(grep -ciE "^warning:" "$report" || true)"
+          echo "no syntax errors. ${warnings} warning(s) - see the groups above."
+
+          # Without qs.Commons and qs.Ui on the import path every Omarchy type is
+          # unknown, so the pass degrades to a syntax check and says nothing about
+          # properties or types. That is worth knowing rather than reading as a
+          # clean bill of health, but it is not a reason to fail the build.
+          failed_imports="$(grep -ciE "Failed to import qs\." "$report" || true)"
+          if [ -s qml-locate.log ]; then
+            echo "where the Omarchy shell was looked for:"
+            cat qml-locate.log
+          fi
+
+          if [ "$failed_imports" -gt 0 ]; then
+            echo "::warning::qs.Commons/qs.Ui did not resolve (${failed_imports} \
+            unresolved imports), so this was a syntax check only, not a type check."
+          fi
+
+      - name: Say so if qmllint is missing
+        if: steps.qt.outputs.lint == ''
+        run: |
+          echo "::warning::qmllint not found on this runner, so the QML was not \
+          checked. It ships with qt6-declarative, which Omarchy already has."
+
+  upstream:
+    name: upstream patch
+    runs-on: self-hosted
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The patch is the deliverable; upstream/omarchy/files/ is a readable copy
+      # of what it writes. A copy that has drifted is worse than none, so this
+      # replays the patch and diffs. Needs nothing but git, so it does not
+      # depend on basecamp/omarchy being reachable from the runner.
+      - name: Check the readable copies still match the patch
+        run: ./upstream/omarchy/verify.sh
+
+      # The contributed tests stub lan-mouse, systemctl and hostname, so they
+      # run here without the package or a compositor.
+      - name: Run the contributed tests
+        run: |
+          set -euo pipefail
+          root="$(mktemp -d)"
+          mkdir -p "$root/test/shell.d"
+          cp upstream/omarchy/files/test/shell.d/input-sharing-test.sh "$root/test/shell.d/"
+          cp -r upstream/omarchy/files/bin "$root/bin"
+
+          # The command calls this to decide whether Lan Mouse is installed, and
+          # it lives in the Omarchy tree rather than in the patch. Without it the
+          # lookup fails open and the "not installed" guard silently never runs,
+          # so stand it in verbatim rather than leaving that test hollow.
+          cat >"$root/bin/omarchy-cmd-missing" <<'CMDMISSING'
+          #!/bin/bash
+
+          for cmd in "$@"; do
+            if ! command -v "$cmd" &>/dev/null; then
+              exit 0
+            fi
+          done
+
+          exit 1
+          CMDMISSING
+          sed -i 's/^          //' "$root/bin/omarchy-cmd-missing"
+          chmod +x "$root/bin/omarchy-cmd-missing"
+
+          # The harness the test sources lives in the Omarchy tree, not here.
+          # It only supplies pass/fail/require_command and $ROOT.
+          cat >"$root/test/shell.d/base-test.sh" <<'HELPERS'
+          ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
+          export ROOT
+          pass() { printf 'ok - %s\n' "$1"; }
+          fail() {
+            [ -n "${2:-}" ] && printf '%s\n' "$2" >&2
+            printf 'not ok - %s\n' "$1" >&2
+            exit 1
+          }
+          require_command() {
+            command -v "$1" >/dev/null || fail "required command is available: $1"
+          }
+          HELPERS
+          sed -i 's/^          //' "$root/test/shell.d/base-test.sh"
+
+          bash "$root/test/shell.d/input-sharing-test.sh"

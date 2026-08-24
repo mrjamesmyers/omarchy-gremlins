@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.mrjamesmyers.twin",
+  "name": "Twin",
+  "version": "0.1.0",
+  "author": "James Myers",
+  "license": "MIT",
+  "description": "Find the same file twice. Scans by size, then by a partial hash, then in full - so a disk full of unique files costs almost nothing to check. Hard links are reported as links, not offered up for deletion, and the last copy can never be removed.",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "BarWidget.qml" },
+  "barWidget": {
+    "displayName": "Twin",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": { "roots": "", "skipHidden": true, "minSizeKb": 4, "hideWhenIdle": true },
+    "schema": [
+      { "key": "roots", "type": "string", "label": "Folders to scan", "defaultValue": "",
+        "description": "Colon-separated. Empty means your home directory." },
+      { "key": "skipHidden", "type": "boolean", "label": "Skip hidden files", "defaultValue": true,
+        "description": "Leaves dotfiles and caches alone, which is where most false positives live." },
+      { "key": "minSizeKb", "type": "integer", "label": "Ignore files under (KB)", "defaultValue": 4,
+        "description": "Tiny files are duplicated constantly and reclaiming them is not worth the risk." },
+      { "key": "hideWhenIdle", "type": "boolean", "label": "Hide when idle", "defaultValue": true,
+        "description": "The widget appears while scanning or when there is something to look at." }
+    ]
+  }
+}
