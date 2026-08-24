@@ -13,10 +13,12 @@ on:
     branches: [main]
     paths:
       - "plugins/**"
+      - "upstream/**"
       - ".github/workflows/helper-tests.yml"
   pull_request:
     paths:
       - "plugins/**"
+      - "upstream/**"
       - ".github/workflows/helper-tests.yml"
   workflow_dispatch:
 
@@ -178,3 +180,67 @@ jobs:
         run: |
           echo "::warning::qmllint not found on this runner, so the QML was not \
           checked. It ships with qt6-declarative, which Omarchy already has."
+
+  upstream:
+    name: upstream patch
+    runs-on: self-hosted
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The patch is the deliverable; upstream/omarchy/files/ is a readable copy
+      # of what it writes. A copy that has drifted is worse than none, so this
+      # replays the patch and diffs. Needs nothing but git, so it does not
+      # depend on basecamp/omarchy being reachable from the runner.
+      - name: Check the readable copies still match the patch
+        run: ./upstream/omarchy/verify.sh
+
+      # The contributed tests stub lan-mouse, systemctl and hostname, so they
+      # run here without the package or a compositor.
+      - name: Run the contributed tests
+        run: |
+          set -euo pipefail
+          root="$(mktemp -d)"
+          mkdir -p "$root/test/shell.d"
+          cp upstream/omarchy/files/test/shell.d/input-sharing-test.sh "$root/test/shell.d/"
+          cp -r upstream/omarchy/files/bin "$root/bin"
+
+          # The command calls this to decide whether Lan Mouse is installed, and
+          # it lives in the Omarchy tree rather than in the patch. Without it the
+          # lookup fails open and the "not installed" guard silently never runs,
+          # so stand it in verbatim rather than leaving that test hollow.
+          cat >"$root/bin/omarchy-cmd-missing" <<'CMDMISSING'
+          #!/bin/bash
+
+          for cmd in "$@"; do
+            if ! command -v "$cmd" &>/dev/null; then
+              exit 0
+            fi
+          done
+
+          exit 1
+          CMDMISSING
+          sed -i 's/^          //' "$root/bin/omarchy-cmd-missing"
+          chmod +x "$root/bin/omarchy-cmd-missing"
+
+          # The harness the test sources lives in the Omarchy tree, not here.
+          # It only supplies pass/fail/require_command and $ROOT.
+          cat >"$root/test/shell.d/base-test.sh" <<'HELPERS'
+          ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
+          export ROOT
+          pass() { printf 'ok - %s\n' "$1"; }
+          fail() {
+            [ -n "${2:-}" ] && printf '%s\n' "$2" >&2
+            printf 'not ok - %s\n' "$1" >&2
+            exit 1
+          }
+          require_command() {
+            command -v "$1" >/dev/null || fail "required command is available: $1"
+          }
+          HELPERS
+          sed -i 's/^          //' "$root/test/shell.d/base-test.sh"
+
+          bash "$root/test/shell.d/input-sharing-test.sh"

@@ -1,0 +1,273 @@
+#!/bin/bash
+
+# omarchy:summary=Share one keyboard and mouse with the other machines on your desk
+# omarchy:args=[status|fingerprint|add|authorize|list|remove] [...]
+# omarchy:examples=omarchy setup input sharing | omarchy setup input sharing fingerprint | omarchy setup input sharing add mini right
+
+set -uo pipefail
+
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/lan-mouse"
+CERT_FILE="$CONFIG_DIR/lan-mouse.pem"
+UNIT=lan-mouse.service
+
+usage() {
+  cat >&2 <<'EOF'
+Usage: omarchy setup input sharing [command]
+
+  (no command)                    Walk through adding a machine
+  status                          Show the daemon, this machine's key, and its neighbours
+  fingerprint                     Print this machine's key, to paste on the other machine
+  add <hostname> <position> [ip]  Put a machine on one edge of this screen
+  authorize <name> <fingerprint>  Let a machine send its keyboard and mouse here
+  list                            List the machines already added
+  remove <id>                     Forget a machine, by the id `list` shows
+
+Position is left, right, top, or bottom -- where the other machine sits
+relative to this one.
+EOF
+}
+
+abort() {
+  printf '\033[31m%s\033[0m\n' "$1" >&2
+  exit 1
+}
+
+require_lan_mouse() {
+  if omarchy-cmd-missing lan-mouse; then
+    abort "Lan Mouse is not installed. Install it from Install > Service > Lan Mouse, or run: omarchy install service lan-mouse"
+  fi
+}
+
+# Every command below talks to the running daemon over its IPC socket, so a
+# stopped service turns into "could not connect" from lan-mouse itself. Say what
+# to do about it here instead, while we still know it is the service and not the
+# network.
+require_service() {
+  if ! systemctl --user is-active --quiet "$UNIT"; then
+    abort "The Lan Mouse daemon is not running. Start it with: systemctl --user start $UNIT"
+  fi
+}
+
+# lan-mouse identifies a machine by the SHA-256 of its DER certificate, printed
+# as lowercase colon-separated bytes. The daemon writes that certificate on its
+# first run and has no command to read the fingerprint back out, so derive it
+# from the file -- openssl skips the private key sharing the same PEM.
+#
+# Returns non-zero rather than aborting, because every caller reads it through a
+# command substitution, where an exit would only leave the subshell and hand the
+# caller an empty string.
+read_fingerprint() {
+  local fingerprint
+
+  [[ -f $CERT_FILE ]] || return 1
+  fingerprint=$(openssl x509 -in "$CERT_FILE" -noout -fingerprint -sha256 2>/dev/null | sed 's/.*=//')
+  [[ -n $fingerprint ]] || return 1
+
+  printf '%s\n' "${fingerprint,,}"
+}
+
+require_fingerprint() {
+  local fingerprint
+
+  if ! fingerprint=$(read_fingerprint); then
+    abort "No certificate at $CERT_FILE yet. Start the daemon once to generate it: systemctl --user start $UNIT"
+  fi
+
+  printf '%s\n' "$fingerprint"
+}
+
+valid_position() {
+  case "${1:-}" in
+    left | right | top | bottom) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+client_ids() {
+  lan-mouse cli list 2>/dev/null | sed -n 's/^id \([0-9][0-9]*\):.*/\1/p' | sort
+}
+
+cmd_fingerprint() {
+  require_lan_mouse
+  require_fingerprint
+}
+
+cmd_list() {
+  require_lan_mouse
+  require_service
+
+  local clients
+  clients=$(lan-mouse cli list 2>/dev/null)
+
+  if [[ -z $clients ]]; then
+    echo "No machines added yet. Add one with: omarchy setup input sharing add <hostname> <position>"
+  else
+    printf '%s\n' "$clients"
+  fi
+}
+
+cmd_add() {
+  local host="${1:-}"
+  local position="${2:-}"
+
+  [[ -n $host ]] || abort "Usage: omarchy setup input sharing add <hostname> <left|right|top|bottom> [ip...]"
+  valid_position "$position" || abort "Position must be left, right, top, or bottom -- got '${position:-nothing}'"
+  shift 2
+
+  require_lan_mouse
+  require_service
+
+  local fingerprint
+  fingerprint=$(require_fingerprint) || exit 1
+
+  local args=(add-client --hostname "$host")
+  local ip
+  for ip in "$@"; do
+    args+=(--ips "$ip")
+  done
+
+  # add-client takes no position, so a new client lands wherever lan-mouse
+  # defaults and has to be moved afterwards. Diff the ids around the call rather
+  # than matching on hostname, which two machines can share.
+  local before after id
+  before=$(client_ids)
+  lan-mouse cli "${args[@]}" || abort "Could not add $host"
+  after=$(client_ids)
+
+  id=$(comm -13 <(printf '%s\n' "$before") <(printf '%s\n' "$after") | head -1)
+  [[ -n $id ]] || abort "Added $host but could not tell which id it got. Check: omarchy setup input sharing list"
+
+  lan-mouse cli set-position "$id" "$position" || abort "Added $host as id $id but could not put it on the $position"
+  lan-mouse cli save-config
+
+  echo "Added $host on the $position as id $id."
+  echo ""
+  echo "Now run this on $host, so it accepts input from here:"
+  echo "  omarchy setup input sharing authorize $(hostname) $fingerprint"
+}
+
+cmd_authorize() {
+  local name="${1:-}"
+  local fingerprint="${2:-}"
+
+  require_lan_mouse
+  require_service
+
+  # Reached from the menu with nothing to go on, so ask for the two values
+  # rather than printing a usage line into a terminal that closes.
+  if [[ -z $name && -z $fingerprint ]] && [[ -t 0 ]]; then
+    echo "Let another machine send its keyboard and mouse to this one."
+    echo ""
+    read -rp "Name of the other machine: " name
+    read -rp "Its key (run 'omarchy setup input sharing fingerprint' there): " fingerprint
+    echo ""
+  fi
+
+  [[ -n $name && -n $fingerprint ]] ||
+    abort "Usage: omarchy setup input sharing authorize <name> <fingerprint>"
+
+  lan-mouse cli authorize-key "$name" "$fingerprint" || abort "Could not authorize $name"
+  lan-mouse cli save-config
+
+  echo "$name can now send its keyboard and mouse to this machine."
+}
+
+cmd_remove() {
+  local id="${1:-}"
+
+  [[ $id =~ ^[0-9]+$ ]] || abort "Usage: omarchy setup input sharing remove <id> -- see: omarchy setup input sharing list"
+
+  require_lan_mouse
+  require_service
+
+  lan-mouse cli remove-client "$id" || abort "Could not remove id $id"
+  lan-mouse cli save-config
+
+  echo "Removed id $id."
+}
+
+cmd_status() {
+  require_lan_mouse
+
+  local running=1
+  systemctl --user is-active --quiet "$UNIT" && running=0
+
+  if (( running == 0 )); then
+    echo "Daemon:       running"
+  else
+    echo "Daemon:       stopped (start it with: systemctl --user start $UNIT)"
+  fi
+
+  echo "This machine: $(hostname)"
+
+  local fingerprint
+  if fingerprint=$(read_fingerprint); then
+    echo "Key:          $fingerprint"
+  else
+    echo "Key:          not generated yet"
+  fi
+
+  echo ""
+  echo "Machines:"
+  if (( running == 0 )); then
+    local clients
+    clients=$(lan-mouse cli list 2>/dev/null)
+    if [[ -n $clients ]]; then
+      printf '  %s\n' "$clients"
+    else
+      echo "  none yet"
+    fi
+  else
+    echo "  unknown while the daemon is stopped"
+  fi
+}
+
+cmd_wizard() {
+  require_lan_mouse
+  require_service
+
+  local fingerprint
+  fingerprint=$(require_fingerprint) || exit 1
+
+  echo "Share this keyboard and mouse with another machine."
+  echo ""
+  echo "This machine is $(hostname). Its key is:"
+  echo "  $fingerprint"
+  echo ""
+
+  local host position
+  read -rp "Hostname of the other machine: " host
+  [[ -n $host ]] || abort "No hostname given"
+
+  read -rp "Which edge does it sit on? [left/right/top/bottom] " position
+  valid_position "$position" || abort "Position must be left, right, top, or bottom"
+
+  cmd_add "$host" "$position"
+}
+
+case "${1:-}" in
+  "") cmd_wizard ;;
+  status) cmd_status ;;
+  fingerprint) cmd_fingerprint ;;
+  list) cmd_list ;;
+  add)
+    shift
+    cmd_add "$@"
+    ;;
+  authorize)
+    shift
+    cmd_authorize "$@"
+    ;;
+  remove)
+    shift
+    cmd_remove "$@"
+    ;;
+  -h | --help | help)
+    usage
+    exit 0
+    ;;
+  *)
+    usage
+    exit 1
+    ;;
+esac

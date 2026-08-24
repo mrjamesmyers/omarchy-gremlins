@@ -1,0 +1,18 @@
+[Unit]
+Description=Share one keyboard and mouse across machines
+Documentation=https://github.com/feschber/lan-mouse
+ConditionPathExists=/usr/bin/lan-mouse
+# Capture and emulation both need a compositor, so the daemon starts with the
+# graphical session and dies with it rather than lingering as a stray process
+# holding the input protocols open.
+After=graphical-session.target
+BindsTo=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/lan-mouse daemon
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

@@ -178,6 +178,38 @@ simultaneously **empty in 1,099 plugins**, **present on both other platforms**, 
 
 ---
 
+## 5b. When the answer is not a plugin
+
+Sharing one keyboard and mouse across machines — macOS Universal Control, Windows Mouse
+Without Borders — is the largest remaining parity gap, and it **cannot be a plugin.**
+
+Capturing the pointer at a screen edge needs `wlr-layer-shell`. Injecting it on the other
+machine needs `wlr-virtual-pointer-unstable-v1` and `virtual-keyboard-unstable-v1`. None
+is reachable from QML, none is reachable from Python without a compiled binding, and
+`uinput` needs privileges a cloned plugin has no business asking for. The helper-daemon
+pattern that carried the other nine plugins runs out of road here.
+
+So it went upstream instead, as a contribution to `basecamp/omarchy`: see
+[`upstream/omarchy/`](upstream/omarchy/). It wires up [Lan Mouse](https://github.com/feschber/lan-mouse),
+which already speaks all three protocols, is written in Rust, and is in Arch's `extra`
+repository — one `omarchy-pkg-add` away, no AUR detour.
+
+The shape follows Omarchy's own conventions rather than inventing any:
+`omarchy install service lan-mouse` next to `omarchy-install-service-sunshine`,
+`omarchy setup input sharing` next to `omarchy-setup-security-*`, menu rows under
+_Install > Service_ and _Setup_, a manual section, and 18 tests in Omarchy's own
+`test/shell.d/` harness. No new command group was needed.
+
+Two rough edges in lan-mouse's CLI are wrapped, both squarely on a first-time user's
+path: `add-client` cannot set a position, and nothing reports your own certificate
+fingerprint — which is exactly the value pairing needs on the *other* machine.
+
+**The rule this earned:** *check whether the gap is a plugin-shaped gap before assuming
+the plugin API is where it closes.* Four of the ten plugins here could have been Omarchy
+patches; this one could only be.
+
+---
+
 ## 6. Design rules
 
 Unchanged by the correction, and now with a sixth earned the hard way.

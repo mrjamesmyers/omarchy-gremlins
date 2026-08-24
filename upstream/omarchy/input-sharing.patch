@@ -1,0 +1,753 @@
+From 19f838c0728c602a91c1c63b9062567e61ebf161 Mon Sep 17 00:00:00 2001
+From: James Myers <jmyers2010@gmail.com>
+Date: Mon, 24 Aug 2026 00:21:55 +0000
+Subject: [PATCH] Share one keyboard and mouse across machines
+
+Omarchy has no answer to Universal Control or Mouse Without Borders: put a
+second machine on the desk and you need a second keyboard for it. The manual's
+own "Coming From Mac or Windows" translation table has a row for AirDrop and
+nothing for this.
+
+Wire up Lan Mouse, which is in extra and speaks the two wlroots protocols
+Hyprland already implements -- layer-shell to capture the pointer at a screen
+edge, wlr-virtual-pointer and virtual-keyboard to replay it on the other side.
+Traffic is DTLS encrypted and machines authorize each other by certificate
+fingerprint.
+
+  omarchy install service lan-mouse    installs it, starts it with the
+                                       graphical session, opens UDP 4242 for
+                                       private LANs and Tailscale
+  omarchy setup input sharing          pairs a machine, from the menu or the
+                                       command line
+
+Two rough edges in lan-mouse's own CLI are smoothed over here, because both sit
+right on the path a first-time user walks:
+
+- add-client takes no position, so a new client lands wherever lan-mouse
+  defaults and has to be moved afterwards. `add` does both, and works out which
+  client is new by diffing the list around the call -- ids are neither
+  sequential nor sorted, so neither the highest nor the last is reliable.
+
+- there is no command to read your own fingerprint back out, though pairing
+  needs it on the other machine. `fingerprint` derives it from the certificate
+  the daemon writes on first run, the same SHA-256 over the DER that lan-mouse
+  compares against.
+
+The unit only lands in the user's config when the system has none, so a
+packaged unit is never shadowed by a stale copy.
+---
+ bin/omarchy-install-service-lan-mouse   |  85 ++++++++
+ bin/omarchy-setup-input-sharing         | 273 ++++++++++++++++++++++++
+ default/omarchy/omarchy-menu.jsonc      |   5 +
+ default/systemd/user/lan-mouse.service  |  18 ++
+ manual/03-coming-from-mac-or-windows.md |   1 +
+ manual/34-keyboard-mouse-trackpad.md    |  26 +++
+ test/shell.d/input-sharing-test.sh      | 227 ++++++++++++++++++++
+ 7 files changed, 635 insertions(+)
+ create mode 100755 bin/omarchy-install-service-lan-mouse
+ create mode 100755 bin/omarchy-setup-input-sharing
+ create mode 100644 default/systemd/user/lan-mouse.service
+ create mode 100755 test/shell.d/input-sharing-test.sh
+
+diff --git a/bin/omarchy-install-service-lan-mouse b/bin/omarchy-install-service-lan-mouse
+new file mode 100755
+index 0000000..3d0ee5c
+--- /dev/null
++++ b/bin/omarchy-install-service-lan-mouse
+@@ -0,0 +1,85 @@
++#!/bin/bash
++
++# omarchy:summary=Install Lan Mouse and open its port so one keyboard and mouse can drive several machines.
++# omarchy:requires-sudo=true
++
++set -e
++
++UDP_PORT=4242
++PRIVATE_CIDRS=(10.0.0.0/8 172.16.0.0/12 192.168.0.0/16)
++UFW_COMMENT="omarchy-lan-mouse"
++UNIT=lan-mouse.service
++UNIT_SOURCE="$OMARCHY_PATH/default/systemd/user/$UNIT"
++UNIT_TARGET="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/$UNIT"
++
++open_ufw_port_for_private_lans() {
++  local cidr
++
++  for cidr in "${PRIVATE_CIDRS[@]}"; do
++    sudo ufw allow in proto udp from "$cidr" to any port "$UDP_PORT" comment "$UFW_COMMENT" >/dev/null
++  done
++}
++
++open_ufw_port_for_tailscale() {
++  if ip link show tailscale0 >/dev/null 2>&1; then
++    sudo ufw allow in on tailscale0 to any port "$UDP_PORT" proto udp comment "$UFW_COMMENT" >/dev/null
++  fi
++}
++
++open_ufw_ports() {
++  if omarchy-cmd-missing ufw; then
++    echo "UFW is not installed; skipping Lan Mouse firewall rules."
++    return
++  fi
++
++  open_ufw_port_for_private_lans
++  open_ufw_port_for_tailscale
++
++  sudo ufw reload
++}
++
++# Newer lan-mouse packages may ship the unit themselves. Only lay down Omarchy's
++# copy where the system has none, so a packaged unit is never shadowed by a stale
++# one in the user's config.
++install_unit() {
++  if systemctl --user cat "$UNIT" >/dev/null 2>&1; then
++    echo "Using the $UNIT that is already on this system."
++    return
++  fi
++
++  mkdir -p "$(dirname "$UNIT_TARGET")"
++  cp "$UNIT_SOURCE" "$UNIT_TARGET"
++  systemctl --user daemon-reload
++}
++
++echo "Installing Lan Mouse..."
++omarchy-pkg-add lan-mouse
++
++echo "Starting Lan Mouse..."
++install_unit
++systemctl --user enable --now "$UNIT"
++
++echo "Opening the Lan Mouse port..."
++open_ufw_ports
++
++echo ""
++echo "Lan Mouse is running and UDP $UDP_PORT is open for private LANs and Tailscale."
++echo ""
++
++# The daemon writes its certificate on first start; give it a moment so the very
++# first run of this installer can still print a key to pair with.
++for _ in {1..10}; do
++  fingerprint=$(omarchy-setup-input-sharing fingerprint 2>/dev/null) && break
++  sleep 0.5
++done
++
++if [[ -n ${fingerprint:-} ]]; then
++  echo "This machine is $(hostname), and its key is:"
++  echo "  $fingerprint"
++  echo ""
++fi
++
++echo "Install Lan Mouse on the other machine too, then on each one run:"
++echo "  omarchy setup input sharing"
++echo ""
++echo "Push the pointer against the edge you put the other machine on to move over to it."
+diff --git a/bin/omarchy-setup-input-sharing b/bin/omarchy-setup-input-sharing
+new file mode 100755
+index 0000000..e395e9f
+--- /dev/null
++++ b/bin/omarchy-setup-input-sharing
+@@ -0,0 +1,273 @@
++#!/bin/bash
++
++# omarchy:summary=Share one keyboard and mouse with the other machines on your desk
++# omarchy:args=[status|fingerprint|add|authorize|list|remove] [...]
++# omarchy:examples=omarchy setup input sharing | omarchy setup input sharing fingerprint | omarchy setup input sharing add mini right
++
++set -uo pipefail
++
++CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/lan-mouse"
++CERT_FILE="$CONFIG_DIR/lan-mouse.pem"
++UNIT=lan-mouse.service
++
++usage() {
++  cat >&2 <<'EOF'
++Usage: omarchy setup input sharing [command]
++
++  (no command)                    Walk through adding a machine
++  status                          Show the daemon, this machine's key, and its neighbours
++  fingerprint                     Print this machine's key, to paste on the other machine
++  add <hostname> <position> [ip]  Put a machine on one edge of this screen
++  authorize <name> <fingerprint>  Let a machine send its keyboard and mouse here
++  list                            List the machines already added
++  remove <id>                     Forget a machine, by the id `list` shows
++
++Position is left, right, top, or bottom -- where the other machine sits
++relative to this one.
++EOF
++}
++
++abort() {
++  printf '\033[31m%s\033[0m\n' "$1" >&2
++  exit 1
++}
++
++require_lan_mouse() {
++  if omarchy-cmd-missing lan-mouse; then
++    abort "Lan Mouse is not installed. Install it from Install > Service > Lan Mouse, or run: omarchy install service lan-mouse"
++  fi
++}
++
++# Every command below talks to the running daemon over its IPC socket, so a
++# stopped service turns into "could not connect" from lan-mouse itself. Say what
++# to do about it here instead, while we still know it is the service and not the
++# network.
++require_service() {
++  if ! systemctl --user is-active --quiet "$UNIT"; then
++    abort "The Lan Mouse daemon is not running. Start it with: systemctl --user start $UNIT"
++  fi
++}
++
++# lan-mouse identifies a machine by the SHA-256 of its DER certificate, printed
++# as lowercase colon-separated bytes. The daemon writes that certificate on its
++# first run and has no command to read the fingerprint back out, so derive it
++# from the file -- openssl skips the private key sharing the same PEM.
++#
++# Returns non-zero rather than aborting, because every caller reads it through a
++# command substitution, where an exit would only leave the subshell and hand the
++# caller an empty string.
++read_fingerprint() {
++  local fingerprint
++
++  [[ -f $CERT_FILE ]] || return 1
++  fingerprint=$(openssl x509 -in "$CERT_FILE" -noout -fingerprint -sha256 2>/dev/null | sed 's/.*=//')
++  [[ -n $fingerprint ]] || return 1
++
++  printf '%s\n' "${fingerprint,,}"
++}
++
++require_fingerprint() {
++  local fingerprint
++
++  if ! fingerprint=$(read_fingerprint); then
++    abort "No certificate at $CERT_FILE yet. Start the daemon once to generate it: systemctl --user start $UNIT"
++  fi
++
++  printf '%s\n' "$fingerprint"
++}
++
++valid_position() {
++  case "${1:-}" in
++    left | right | top | bottom) return 0 ;;
++    *) return 1 ;;
++  esac
++}
++
++client_ids() {
++  lan-mouse cli list 2>/dev/null | sed -n 's/^id \([0-9][0-9]*\):.*/\1/p' | sort
++}
++
++cmd_fingerprint() {
++  require_lan_mouse
++  require_fingerprint
++}
++
++cmd_list() {
++  require_lan_mouse
++  require_service
++
++  local clients
++  clients=$(lan-mouse cli list 2>/dev/null)
++
++  if [[ -z $clients ]]; then
++    echo "No machines added yet. Add one with: omarchy setup input sharing add <hostname> <position>"
++  else
++    printf '%s\n' "$clients"
++  fi
++}
++
++cmd_add() {
++  local host="${1:-}"
++  local position="${2:-}"
++
++  [[ -n $host ]] || abort "Usage: omarchy setup input sharing add <hostname> <left|right|top|bottom> [ip...]"
++  valid_position "$position" || abort "Position must be left, right, top, or bottom -- got '${position:-nothing}'"
++  shift 2
++
++  require_lan_mouse
++  require_service
++
++  local fingerprint
++  fingerprint=$(require_fingerprint) || exit 1
++
++  local args=(add-client --hostname "$host")
++  local ip
++  for ip in "$@"; do
++    args+=(--ips "$ip")
++  done
++
++  # add-client takes no position, so a new client lands wherever lan-mouse
++  # defaults and has to be moved afterwards. Diff the ids around the call rather
++  # than matching on hostname, which two machines can share.
++  local before after id
++  before=$(client_ids)
++  lan-mouse cli "${args[@]}" || abort "Could not add $host"
++  after=$(client_ids)
++
++  id=$(comm -13 <(printf '%s\n' "$before") <(printf '%s\n' "$after") | head -1)
++  [[ -n $id ]] || abort "Added $host but could not tell which id it got. Check: omarchy setup input sharing list"
++
++  lan-mouse cli set-position "$id" "$position" || abort "Added $host as id $id but could not put it on the $position"
++  lan-mouse cli save-config
++
++  echo "Added $host on the $position as id $id."
++  echo ""
++  echo "Now run this on $host, so it accepts input from here:"
++  echo "  omarchy setup input sharing authorize $(hostname) $fingerprint"
++}
++
++cmd_authorize() {
++  local name="${1:-}"
++  local fingerprint="${2:-}"
++
++  require_lan_mouse
++  require_service
++
++  # Reached from the menu with nothing to go on, so ask for the two values
++  # rather than printing a usage line into a terminal that closes.
++  if [[ -z $name && -z $fingerprint ]] && [[ -t 0 ]]; then
++    echo "Let another machine send its keyboard and mouse to this one."
++    echo ""
++    read -rp "Name of the other machine: " name
++    read -rp "Its key (run 'omarchy setup input sharing fingerprint' there): " fingerprint
++    echo ""
++  fi
++
++  [[ -n $name && -n $fingerprint ]] ||
++    abort "Usage: omarchy setup input sharing authorize <name> <fingerprint>"
++
++  lan-mouse cli authorize-key "$name" "$fingerprint" || abort "Could not authorize $name"
++  lan-mouse cli save-config
++
++  echo "$name can now send its keyboard and mouse to this machine."
++}
++
++cmd_remove() {
++  local id="${1:-}"
++
++  [[ $id =~ ^[0-9]+$ ]] || abort "Usage: omarchy setup input sharing remove <id> -- see: omarchy setup input sharing list"
++
++  require_lan_mouse
++  require_service
++
++  lan-mouse cli remove-client "$id" || abort "Could not remove id $id"
++  lan-mouse cli save-config
++
++  echo "Removed id $id."
++}
++
++cmd_status() {
++  require_lan_mouse
++
++  local running=1
++  systemctl --user is-active --quiet "$UNIT" && running=0
++
++  if (( running == 0 )); then
++    echo "Daemon:       running"
++  else
++    echo "Daemon:       stopped (start it with: systemctl --user start $UNIT)"
++  fi
++
++  echo "This machine: $(hostname)"
++
++  local fingerprint
++  if fingerprint=$(read_fingerprint); then
++    echo "Key:          $fingerprint"
++  else
++    echo "Key:          not generated yet"
++  fi
++
++  echo ""
++  echo "Machines:"
++  if (( running == 0 )); then
++    local clients
++    clients=$(lan-mouse cli list 2>/dev/null)
++    if [[ -n $clients ]]; then
++      printf '  %s\n' "$clients"
++    else
++      echo "  none yet"
++    fi
++  else
++    echo "  unknown while the daemon is stopped"
++  fi
++}
++
++cmd_wizard() {
++  require_lan_mouse
++  require_service
++
++  local fingerprint
++  fingerprint=$(require_fingerprint) || exit 1
++
++  echo "Share this keyboard and mouse with another machine."
++  echo ""
++  echo "This machine is $(hostname). Its key is:"
++  echo "  $fingerprint"
++  echo ""
++
++  local host position
++  read -rp "Hostname of the other machine: " host
++  [[ -n $host ]] || abort "No hostname given"
++
++  read -rp "Which edge does it sit on? [left/right/top/bottom] " position
++  valid_position "$position" || abort "Position must be left, right, top, or bottom"
++
++  cmd_add "$host" "$position"
++}
++
++case "${1:-}" in
++  "") cmd_wizard ;;
++  status) cmd_status ;;
++  fingerprint) cmd_fingerprint ;;
++  list) cmd_list ;;
++  add)
++    shift
++    cmd_add "$@"
++    ;;
++  authorize)
++    shift
++    cmd_authorize "$@"
++    ;;
++  remove)
++    shift
++    cmd_remove "$@"
++    ;;
++  -h | --help | help)
++    usage
++    exit 0
++    ;;
++  *)
++    usage
++    exit 1
++    ;;
++esac
+diff --git a/default/omarchy/omarchy-menu.jsonc b/default/omarchy/omarchy-menu.jsonc
+index 3a24759..8f7ca87 100644
+--- a/default/omarchy/omarchy-menu.jsonc
++++ b/default/omarchy/omarchy-menu.jsonc
+@@ -126,6 +126,10 @@
+   "setup.monitors": {"icon":"󰍹","label":"Monitors","action":"omarchy-launch-config-editor \"$HOME/.config/hypr/monitors.lua\""},
+   "setup.keybindings": {"icon":"","label":"Keybindings","when":"[[ -f ~/.config/hypr/bindings.lua ]]","action":"omarchy-launch-config-editor \"$HOME/.config/hypr/bindings.lua\""},
+   "setup.input": {"icon":"","label":"Input","when":"[[ -f ~/.config/hypr/input.lua ]]","action":"omarchy-launch-config-editor \"$HOME/.config/hypr/input.lua\""},
++  "setup.input-sharing": {"icon":"󰌌","label":"Input Sharing","when":"omarchy-cmd-present lan-mouse","title":"Share Keyboard and Mouse"},
++  "setup.input-sharing.add": {"icon":"󰍹","label":"Add Machine","action":"omarchy-launch-floating-terminal-with-presentation omarchy-setup-input-sharing"},
++  "setup.input-sharing.authorize": {"icon":"󰄬","label":"Authorize Machine","action":"omarchy-launch-floating-terminal-with-presentation 'omarchy-setup-input-sharing authorize'"},
++  "setup.input-sharing.status": {"icon":"","label":"Status","action":"omarchy-launch-floating-terminal-with-presentation 'omarchy-setup-input-sharing status'"},
+   "setup.network": {"icon":"󰛳","label":"Network","aliases":["network"]},
+   "setup.network.dns": {"icon":"󰇖","label":"DNS","aliases":["dns"]},
+   "setup.network.dns.dhcp": {"icon":"󰩟","label":"DHCP","checked":"[[ \"$(omarchy-dns)\" == \"DHCP\" ]]","action":"omarchy-dns DHCP"},
+@@ -220,6 +224,7 @@
+   "install.service.spotify": {"icon":"󰓇","label":"Spotify","disabled":"omarchy-pkg-present spotify","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-service-spotify"},
+   "install.service.signal": {"icon":"󰭹","label":"Signal","disabled":"omarchy-pkg-present signal-desktop","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-service-signal"},
+   "install.service.tailscale": {"icon":"","label":"Tailscale","disabled":"omarchy-pkg-present tailscale","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-service-tailscale"},
++  "install.service.lan-mouse": {"icon":"󰌌","label":"Lan Mouse","disabled":"omarchy-pkg-present lan-mouse","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-service-lan-mouse"},
+   "install.service.nordvpn": {"icon":"󱇱","label":"NordVPN","disabled":"omarchy-pkg-present nordvpn-bin","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-service-nordvpn"},
+   "install.service.once": {"icon":"󰏖","label":"ONCE","disabled":"omarchy-pkg-present once-bin","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-service-once"},
+   "install.service.bitwarden": {"icon":"󰟵","label":"Bitwarden","disabled":"omarchy-pkg-present bitwarden","action":"omarchy-install-and-launch Bitwarden 'bitwarden bitwarden-cli' bitwarden"},
+diff --git a/default/systemd/user/lan-mouse.service b/default/systemd/user/lan-mouse.service
+new file mode 100644
+index 0000000..cb1df66
+--- /dev/null
++++ b/default/systemd/user/lan-mouse.service
+@@ -0,0 +1,18 @@
++[Unit]
++Description=Share one keyboard and mouse across machines
++Documentation=https://github.com/feschber/lan-mouse
++ConditionPathExists=/usr/bin/lan-mouse
++# Capture and emulation both need a compositor, so the daemon starts with the
++# graphical session and dies with it rather than lingering as a stray process
++# holding the input protocols open.
++After=graphical-session.target
++BindsTo=graphical-session.target
++
++[Service]
++Type=simple
++ExecStart=/usr/bin/lan-mouse daemon
++Restart=on-failure
++RestartSec=5
++
++[Install]
++WantedBy=graphical-session.target
+diff --git a/manual/03-coming-from-mac-or-windows.md b/manual/03-coming-from-mac-or-windows.md
+index f18189a..9ac01f7 100644
+--- a/manual/03-coming-from-mac-or-windows.md
++++ b/manual/03-coming-from-mac-or-windows.md
+@@ -32,6 +32,7 @@ Windows folks: your Win + V clipboard history lives on `Super + Ctrl + V`, and i
+ | ------------- | ---------- |
+ | Spotlight / Raycast / Start menu | `Super + Space` — the Omarchy menu |
+ | AirDrop | LocalSend, via `Super + Ctrl + S` — see [GUIs](22-guis.md) |
++| Universal Control / Mouse Without Borders | Lan Mouse, via _Setup > Input Sharing_ — see [keyboard, mouse, trackpad](34-keyboard-mouse-trackpad.md) |
+ | Cmd + Shift + 4 / Win + Shift + S | `Print Screen` — see [screenshots & recording](12-screenshots-recording.md) |
+ | Notification Center | Notification history on `Super + Shift + Alt + ,` |
+ | Time Machine (for the system) | Automatic [system snapshots](47-system-snapshots.md) on every update |
+diff --git a/manual/34-keyboard-mouse-trackpad.md b/manual/34-keyboard-mouse-trackpad.md
+index 648e771..4e216c6 100644
+--- a/manual/34-keyboard-mouse-trackpad.md
++++ b/manual/34-keyboard-mouse-trackpad.md
+@@ -57,6 +57,32 @@ hl.gesture({ fingers = 3, direction = "horizontal", action = "workspace" })
+ 
+ On Dell XPS laptops with a haptic touchpad, you can also set the click strength to low, mid, or high under _Trigger > Hardware > Touchpad Haptics_.
+ 
++### One keyboard and mouse for several machines
++
++If you keep a second machine on the same desk, you don't need a second keyboard for it. Omarchy can share the ones you already have, the way Universal Control does between Macs and Mouse Without Borders does between Windows PCs: push the pointer off the edge of your screen and it lands on the other machine, with your keyboard following it.
++
++Install it from _Install > Service > Lan Mouse_ on both machines. That installs [Lan Mouse](https://github.com/feschber/lan-mouse), starts it with your graphical session, and opens UDP port 4242 for private networks and Tailscale.
++
++Then pair them. On the machine with the keyboard, use _Setup > Input Sharing > Add Machine_, or name the other machine and the edge it sits on directly:
++
++```sh
++omarchy setup input sharing add mini right
++```
++
++That prints a command to run on the other machine, which lets this one send input to it:
++
++```sh
++omarchy setup input sharing authorize desk aa:bb:cc:...
++```
++
++Machines identify each other by the fingerprint of a certificate they generate on first run, and everything on the wire is encrypted. Nothing crosses until both sides have agreed, so a machine that has not authorized yours ignores it.
++
++Now push the pointer against the right edge of your screen and it crosses over. Hold `Ctrl + Shift + Super + Alt` to release it and bring it back, which is what you want when the other machine stops answering.
++
++`omarchy setup input sharing status` shows whether the daemon is up, this machine's fingerprint, and the machines you have added. All of it is plain configuration in `~/.config/lan-mouse/config.toml` if you would rather edit it by hand.
++
++Macs and Windows PCs can join too, in either direction — install Lan Mouse there and pair the same way. One caveat when the Mac or Windows machine is the one sending: modifier keys can get dropped on the Omarchy side, so Ctrl, Shift, Alt and Super may not register. Omarchy to Omarchy is unaffected.
++
+ ### Typing in Chinese, Japanese, and other languages
+ 
+ Omarchy runs the [fcitx5](https://fcitx-im.org/) input method framework as part of every session — it's what powers the CapsLock compose sequences. That means the plumbing for non-Latin input is already in place: install an input engine like `fcitx5-mozc` (Japanese) or `fcitx5-chinese-addons` (Chinese) with `omarchy pkg add`, plus `fcitx5-configtool` to add the engine to your input methods and set the key that switches between them.
+diff --git a/test/shell.d/input-sharing-test.sh b/test/shell.d/input-sharing-test.sh
+new file mode 100755
+index 0000000..ca241d9
+--- /dev/null
++++ b/test/shell.d/input-sharing-test.sh
+@@ -0,0 +1,227 @@
++#!/bin/bash
++
++set -euo pipefail
++
++source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
++
++require_command openssl
++
++tmp_dir=$(mktemp -d)
++trap 'rm -rf "$tmp_dir"' EXIT
++
++mkdir -p "$tmp_dir/bin" "$tmp_dir/config/lan-mouse"
++
++# A stand-in for the daemon's IPC client. It records every call and keeps its
++# client list in a file, so the tests can assert on what the command asked for
++# without lan-mouse -- or a compositor -- being present.
++cat >"$tmp_dir/bin/lan-mouse" <<'EOF'
++#!/bin/bash
++
++printf '%s\n' "$*" >>"$LAN_MOUSE_CALLS"
++
++[[ ${1:-} == cli ]] || exit 1
++shift
++
++case "${1:-}" in
++  list)
++    while IFS='|' read -r id host; do
++      [[ -n $id ]] || continue
++      printf 'id %s: %s:4242 (left) active: false, ips: []\n' "$id" "$host"
++    done <"$LAN_MOUSE_STATE"
++    ;;
++  add-client)
++    shift
++    host=unknown
++    while (( $# )); do
++      case "$1" in
++        --hostname)
++          host="$2"
++          shift 2
++          ;;
++        --ips) shift 2 ;;
++        *) shift ;;
++      esac
++    done
++    printf '%s|%s\n' "$LAN_MOUSE_NEXT_ID" "$host" >>"$LAN_MOUSE_STATE"
++    ;;
++  set-position | save-config | authorize-key | remove-client) ;;
++  *) exit 1 ;;
++esac
++EOF
++chmod +x "$tmp_dir/bin/lan-mouse"
++
++cat >"$tmp_dir/bin/systemctl" <<'EOF'
++#!/bin/bash
++
++[[ $* == *is-active* ]] || exit 0
++[[ ${DAEMON_RUNNING:-1} == 1 ]]
++EOF
++chmod +x "$tmp_dir/bin/systemctl"
++
++cat >"$tmp_dir/bin/hostname" <<'EOF'
++#!/bin/bash
++
++echo desk
++EOF
++chmod +x "$tmp_dir/bin/hostname"
++
++export PATH="$tmp_dir/bin:$ROOT/bin:$PATH"
++export XDG_CONFIG_HOME="$tmp_dir/config"
++export LAN_MOUSE_CALLS="$tmp_dir/calls"
++export LAN_MOUSE_STATE="$tmp_dir/clients"
++export LAN_MOUSE_NEXT_ID=9
++
++cert="$tmp_dir/config/lan-mouse/lan-mouse.pem"
++share="$ROOT/bin/omarchy-setup-input-sharing"
++
++reset_calls() {
++  : >"$LAN_MOUSE_CALLS"
++}
++
++reset_clients() {
++  : >"$LAN_MOUSE_STATE"
++  printf '%s\n' "$@" >>"$LAN_MOUSE_STATE"
++}
++
++: >"$LAN_MOUSE_CALLS"
++reset_clients
++
++# --- lan-mouse missing -------------------------------------------------------
++
++# A PATH holding nothing but Omarchy's own bin proves lan-mouse is absent no
++# matter what the machine running this has installed.
++error=$(PATH="$ROOT/bin" "$share" list 2>&1 >/dev/null || true)
++[[ $error == *"not installed"* ]] ||
++  fail "every command says so when Lan Mouse is not installed" "$error"
++pass "every command says so when Lan Mouse is not installed"
++
++if PATH="$ROOT/bin" "$share" status >/dev/null 2>&1; then
++  fail "status fails when Lan Mouse is not installed"
++fi
++pass "status fails when Lan Mouse is not installed"
++
++# --- fingerprint -------------------------------------------------------------
++
++if "$share" fingerprint >/dev/null 2>&1; then
++  fail "fingerprint fails before the daemon has written a certificate"
++fi
++pass "fingerprint fails before the daemon has written a certificate"
++
++# lan-mouse stores the private key and the certificate in one PEM, which is why
++# the command reads the fingerprint with openssl rather than hashing the file.
++openssl req -x509 -newkey rsa:2048 -keyout "$tmp_dir/key.pem" -out "$tmp_dir/cert.pem" \
++  -days 1 -nodes -subj "/CN=ignored" >/dev/null 2>&1
++cat "$tmp_dir/key.pem" "$tmp_dir/cert.pem" >"$cert"
++
++# What lan-mouse itself computes: the SHA-256 of the DER certificate, printed as
++# lowercase colon-separated bytes.
++expected=$(openssl x509 -in "$tmp_dir/cert.pem" -outform DER |
++  sha256sum | cut -d' ' -f1 | sed 's/../&:/g; s/:$//')
++actual=$("$share" fingerprint)
++
++[[ $actual == "$expected" ]] ||
++  fail "fingerprint matches the SHA-256 of the DER certificate" "expected: $expected
++actual:   $actual"
++pass "fingerprint matches the SHA-256 of the DER certificate"
++
++[[ $actual == *:* && $actual != *[A-Z]* ]] ||
++  fail "fingerprint is lowercase and colon-separated: $actual"
++pass "fingerprint is lowercase and colon-separated"
++
++# --- add ---------------------------------------------------------------------
++
++reset_calls
++if "$share" add mini sideways >/dev/null 2>&1; then
++  fail "add rejects a position that is not an edge"
++fi
++[[ ! -s $LAN_MOUSE_CALLS ]] ||
++  fail "add rejects a bad position before touching lan-mouse" "$(<"$LAN_MOUSE_CALLS")"
++pass "add rejects a position that is not an edge, before touching lan-mouse"
++
++reset_calls
++if "$share" add >/dev/null 2>&1; then
++  fail "add without a hostname fails"
++fi
++pass "add without a hostname fails"
++
++# Ids are neither sequential nor sorted in the order they arrive, so the command
++# has to work out which client is new by diffing the list around the call rather
++# than assuming the last or highest id is the one it just made.
++# Id 2 among 3 and 11 is neither the highest nor the one that sorts last, so a
++# shortcut on either would move the wrong machine.
++reset_calls
++reset_clients "3|studio" "11|attic"
++LAN_MOUSE_NEXT_ID=2 "$share" add mini right >/dev/null
++
++grep -qx 'cli add-client --hostname mini' "$LAN_MOUSE_CALLS" ||
++  fail "add passes the hostname to add-client" "$(<"$LAN_MOUSE_CALLS")"
++pass "add passes the hostname to add-client"
++
++grep -qx 'cli set-position 2 right' "$LAN_MOUSE_CALLS" ||
++  fail "add moves the new client, not an existing one" "$(<"$LAN_MOUSE_CALLS")"
++pass "add finds the new id among existing clients and positions it"
++
++grep -qx 'cli save-config' "$LAN_MOUSE_CALLS" ||
++  fail "add persists the configuration" "$(<"$LAN_MOUSE_CALLS")"
++pass "add persists the configuration"
++
++output=$(reset_clients; LAN_MOUSE_NEXT_ID=4 "$share" add mini right)
++[[ $output == *"authorize desk $expected"* ]] ||
++  fail "add prints the pairing command for the other machine" "$output"
++pass "add prints the pairing command for the other machine"
++
++# Each address is its own --ips flag; lan-mouse appends rather than splitting one
++# comma-separated value.
++reset_calls
++reset_clients
++LAN_MOUSE_NEXT_ID=2 "$share" add mini left 192.168.1.4 192.168.1.5 >/dev/null
++grep -qx 'cli add-client --hostname mini --ips 192.168.1.4 --ips 192.168.1.5' "$LAN_MOUSE_CALLS" ||
++  fail "add passes each address as its own --ips flag" "$(<"$LAN_MOUSE_CALLS")"
++pass "add passes each address as its own --ips flag"
++
++# --- authorize and remove ----------------------------------------------------
++
++reset_calls
++"$share" authorize studio "aa:bb:cc" >/dev/null
++grep -qx 'cli authorize-key studio aa:bb:cc' "$LAN_MOUSE_CALLS" ||
++  fail "authorize forwards the name and key" "$(<"$LAN_MOUSE_CALLS")"
++grep -qx 'cli save-config' "$LAN_MOUSE_CALLS" ||
++  fail "authorize persists the configuration" "$(<"$LAN_MOUSE_CALLS")"
++pass "authorize forwards the name and key, and persists it"
++
++reset_calls
++if "$share" remove studio >/dev/null 2>&1; then
++  fail "remove rejects anything that is not an id"
++fi
++[[ ! -s $LAN_MOUSE_CALLS ]] ||
++  fail "remove rejects a bad id before touching lan-mouse" "$(<"$LAN_MOUSE_CALLS")"
++pass "remove rejects anything that is not an id"
++
++reset_calls
++"$share" remove 3 >/dev/null
++grep -qx 'cli remove-client 3' "$LAN_MOUSE_CALLS" ||
++  fail "remove forwards the id" "$(<"$LAN_MOUSE_CALLS")"
++pass "remove forwards the id"
++
++# --- a stopped daemon --------------------------------------------------------
++
++# Everything but status and fingerprint needs the daemon, and lan-mouse's own
++# error for that is "could not connect", which reads like a network fault.
++reset_calls
++if DAEMON_RUNNING=0 "$share" add mini right >/dev/null 2>&1; then
++  fail "add fails while the daemon is stopped"
++fi
++error=$(DAEMON_RUNNING=0 "$share" add mini right 2>&1 >/dev/null || true)
++[[ $error == *"not running"* ]] ||
++  fail "a stopped daemon is reported as a stopped daemon" "$error"
++pass "a stopped daemon is reported as a stopped daemon, not a connection failure"
++
++output=$(DAEMON_RUNNING=0 "$share" status)
++[[ $output == *"stopped"* && $output == *"$expected"* ]] ||
++  fail "status reports a stopped daemon and still shows this machine's key" "$output"
++pass "status reports a stopped daemon and still shows this machine's key"
++
++output=$("$share" status)
++[[ $output == *"running"* && $output == *desk* ]] ||
++  fail "status reports a running daemon and this machine's name" "$output"
++pass "status reports a running daemon and this machine's name"
+-- 
+2.43.0
+

@@ -1,0 +1,85 @@
+#!/bin/bash
+
+# omarchy:summary=Install Lan Mouse and open its port so one keyboard and mouse can drive several machines.
+# omarchy:requires-sudo=true
+
+set -e
+
+UDP_PORT=4242
+PRIVATE_CIDRS=(10.0.0.0/8 172.16.0.0/12 192.168.0.0/16)
+UFW_COMMENT="omarchy-lan-mouse"
+UNIT=lan-mouse.service
+UNIT_SOURCE="$OMARCHY_PATH/default/systemd/user/$UNIT"
+UNIT_TARGET="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/$UNIT"
+
+open_ufw_port_for_private_lans() {
+  local cidr
+
+  for cidr in "${PRIVATE_CIDRS[@]}"; do
+    sudo ufw allow in proto udp from "$cidr" to any port "$UDP_PORT" comment "$UFW_COMMENT" >/dev/null
+  done
+}
+
+open_ufw_port_for_tailscale() {
+  if ip link show tailscale0 >/dev/null 2>&1; then
+    sudo ufw allow in on tailscale0 to any port "$UDP_PORT" proto udp comment "$UFW_COMMENT" >/dev/null
+  fi
+}
+
+open_ufw_ports() {
+  if omarchy-cmd-missing ufw; then
+    echo "UFW is not installed; skipping Lan Mouse firewall rules."
+    return
+  fi
+
+  open_ufw_port_for_private_lans
+  open_ufw_port_for_tailscale
+
+  sudo ufw reload
+}
+
+# Newer lan-mouse packages may ship the unit themselves. Only lay down Omarchy's
+# copy where the system has none, so a packaged unit is never shadowed by a stale
+# one in the user's config.
+install_unit() {
+  if systemctl --user cat "$UNIT" >/dev/null 2>&1; then
+    echo "Using the $UNIT that is already on this system."
+    return
+  fi
+
+  mkdir -p "$(dirname "$UNIT_TARGET")"
+  cp "$UNIT_SOURCE" "$UNIT_TARGET"
+  systemctl --user daemon-reload
+}
+
+echo "Installing Lan Mouse..."
+omarchy-pkg-add lan-mouse
+
+echo "Starting Lan Mouse..."
+install_unit
+systemctl --user enable --now "$UNIT"
+
+echo "Opening the Lan Mouse port..."
+open_ufw_ports
+
+echo ""
+echo "Lan Mouse is running and UDP $UDP_PORT is open for private LANs and Tailscale."
+echo ""
+
+# The daemon writes its certificate on first start; give it a moment so the very
+# first run of this installer can still print a key to pair with.
+for _ in {1..10}; do
+  fingerprint=$(omarchy-setup-input-sharing fingerprint 2>/dev/null) && break
+  sleep 0.5
+done
+
+if [[ -n ${fingerprint:-} ]]; then
+  echo "This machine is $(hostname), and its key is:"
+  echo "  $fingerprint"
+  echo ""
+fi
+
+echo "Install Lan Mouse on the other machine too, then on each one run:"
+echo "  omarchy setup input sharing"
+echo ""
+echo "Push the pointer against the edge you put the other machine on to move over to it."
