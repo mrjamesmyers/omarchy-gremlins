@@ -1,0 +1,72 @@
+name: validate
+
+# Runs on a real Omarchy machine. That is the whole point of the `omarchy`
+# runner label: `omarchy plugin validate` only exists there, and the wallpaper
+# seam test needs the ffmpeg that ships with it. No hosted runner can do either.
+#
+# The runner is deliberately NOT labelled Linux/X64, so nothing else in the org
+# schedules onto it - it is somebody's desktop.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: validate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plugin:
+    runs-on: [self-hosted, omarchy]
+    timeout-minutes: 15
+    env:
+      OMARCHY_PATH: /usr/share/omarchy
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Manifest is valid JSON
+        run: python3 -c "import json; json.load(open('manifest.json')); print('manifest.json parses')"
+
+      - name: Validate against the Omarchy plugin schema
+        # The gate a marketplace submission is judged by. A plugin can look fine
+        # locally and still bounce here.
+        run: omarchy plugin validate .
+
+      - name: Every declared entry point exists
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          m = json.load(open("manifest.json"))
+          missing = [p for p in m["entryPoints"].values() if not os.path.exists(p)]
+          if missing:
+              sys.exit("entry points declared but absent: " + ", ".join(missing))
+          print("entry points present:", ", ".join(m["entryPoints"].values()))
+          PY
+
+      - name: Cache the checker's venv
+        id: venv-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/gremlins-ci-venv
+          key: gremlins-ci-venv-numpy-pillow-v1
+
+      - name: Build the venv
+        if: steps.venv-cache.outputs.cache-hit != 'true'
+        run: |
+          python3 -m venv ~/.cache/gremlins-ci-venv
+          ~/.cache/gremlins-ci-venv/bin/pip install --quiet --upgrade pip
+          ~/.cache/gremlins-ci-venv/bin/pip install --quiet numpy pillow
+
+      - name: Wallpapers - assets present and both joins invisible
+        run: ~/.cache/gremlins-ci-venv/bin/python ci/check_wallpapers.py
+
+      - name: Repo weight
+        # People clone this. A wallpaper repo that quietly grows to 100MB is a
+        # real cost to them, so surface it every run rather than discovering it
+        # at submission time.
+        run: |
+          echo "assets: $(du -sh assets | cut -f1)"
+          echo "worktree: $(du -sh --exclude=.git . | cut -f1)"
