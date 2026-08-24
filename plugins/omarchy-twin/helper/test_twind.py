@@ -88,8 +88,16 @@ def test_finds_real_duplicates():
         groups, stats = twind.find_duplicates([root])
         flat = {tuple(sorted(g)) for g in groups}
 
-        triple = tuple(sorted([paths["one"], paths["copy"], paths["third"]]))
-        check("find: the three identical files are one group", triple in flat,
+        # one.txt and linked.txt are two names for one inode, so exactly one of
+        # them stands for that inode in the group -- which one is an ordering
+        # detail, not the contract. Pinning it to one.txt made this test pass or
+        # fail on the filesystem's directory order.
+        inode_names = {paths["one"], paths["link"]}
+        triples = [g for g in groups
+                   if paths["copy"] in g and paths["third"] in g]
+        check("find: the three identical files are one group",
+              len(triples) == 1 and len(triples[0]) == 3 and
+              len(set(triples[0]) & inode_names) == 1,
               [sorted(g) for g in groups])
 
         # Same first 64 KiB, different tail. The head pass groups them; only
@@ -116,10 +124,48 @@ def test_hardlinks_are_not_duplicates():
     root, paths = build_tree()
     try:
         groups, stats = twind.find_duplicates([root])
-        in_group = any(paths["link"] in g for g in groups)
-        check("hardlink: the second name is not offered as a duplicate",
-              not in_group, [g for g in groups if paths["link"] in g])
+        # The contract is that one inode is never offered twice, not that a
+        # particular one of its names is the survivor.
+        offered = [p for g in groups for p in g
+                   if p in (paths["one"], paths["link"])]
+        check("hardlink: two names for one inode are offered once, not twice",
+              len(offered) == 1, offered)
         check("hardlink: it is reported separately", stats["hardlinked"] >= 1, stats)
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def test_results_do_not_depend_on_directory_order():
+    """The bug this pins: os.scandir returns entries in filesystem order, which
+    differs between filesystems for the same tree. That decided which of two
+    hardlinked names was offered for deletion, so the same tree gave different
+    answers on different machines."""
+    root, paths = build_tree()
+    try:
+        baseline, _ = twind.find_duplicates([root])
+
+        real_walk = os.walk
+
+        def walk_in(order):
+            def walking(*args, **kwargs):
+                for base, dirs, files in real_walk(*args, **kwargs):
+                    dirs.sort(reverse=order)
+                    yield base, dirs, sorted(files, reverse=order)
+            return walking
+
+        seen = []
+        for order in (False, True):
+            os.walk = walk_in(order)
+            try:
+                groups, _ = twind.find_duplicates([root])
+            finally:
+                os.walk = real_walk
+            seen.append([sorted(g) for g in groups])
+
+        check("order: a reversed directory order gives the same groups",
+              seen[0] == seen[1], seen)
+        check("order: and the same groups as an unpatched scan",
+              seen[0] == [sorted(g) for g in baseline], (seen[0], baseline))
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
@@ -199,6 +245,7 @@ def main():
     print("-- walking --");        test_walk_skips_the_right_things()
     print("\n-- finding --");      test_finds_real_duplicates()
     print("\n-- hard links --");   test_hardlinks_are_not_duplicates()
+    print("\n-- order --");        test_results_do_not_depend_on_directory_order()
     print("\n-- roots --");        test_overlapping_roots_do_not_double_count()
     print("\n-- deleting --");     test_delete_safety()
     print("\n-- filters --");      test_min_size_filter()

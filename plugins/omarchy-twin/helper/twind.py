@@ -94,6 +94,15 @@ def walk(roots, skip_hidden=True, min_size=MIN_SIZE, cancel=None):
                 continue
             seen_dirs.add(key)
 
+            # os.scandir hands entries back in whatever order the filesystem
+            # stores them, which differs between filesystems for the same tree.
+            # Sorting makes a scan reproducible, which matters because this tool
+            # tells people which files to delete: where two names share an inode
+            # only the first is offered, and without an order that "first" -- and
+            # so the name on screen -- changes from machine to machine.
+            dirs.sort()
+            files.sort()
+
             if skip_hidden:
                 dirs[:] = [d for d in dirs if not d.startswith(".")]
             for name in files:
