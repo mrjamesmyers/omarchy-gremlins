@@ -190,13 +190,13 @@ Item {
 
           readonly property real pw: root.pageInfo ? root.pageInfo.width : 612
           readonly property real ph: root.pageInfo ? root.pageInfo.height : 792
-          readonly property real scale:
+          readonly property real fit:
             Math.min(width / pw, height / ph)
 
           Rectangle {
             id: sheet
-            width: stage.pw * stage.scale
-            height: stage.ph * stage.scale
+            width: stage.pw * stage.fit
+            height: stage.ph * stage.fit
             anchors.centerIn: parent
             color: "white"
 
@@ -252,11 +252,11 @@ Item {
                 function stroke(points, colour, width) {
                   if (!points || points.length < 2) return
                   ctx.strokeStyle = colour
-                  ctx.lineWidth = Math.max(0.5, width * stage.scale)
+                  ctx.lineWidth = Math.max(0.5, width * stage.fit)
                   ctx.beginPath()
-                  ctx.moveTo(points[0][0] * stage.scale, points[0][1] * stage.scale)
+                  ctx.moveTo(points[0][0] * stage.fit, points[0][1] * stage.fit)
                   for (var i = 1; i < points.length; i++)
-                    ctx.lineTo(points[i][0] * stage.scale, points[i][1] * stage.scale)
+                    ctx.lineTo(points[i][0] * stage.fit, points[i][1] * stage.fit)
                   ctx.stroke()
                 }
 
@@ -266,12 +266,12 @@ Item {
                   if (op.type === "ink") stroke(op.points, root.inkColour, op.width)
                   else if (op.type === "text") {
                     ctx.fillStyle = root.inkColour
-                    ctx.font = Math.round(op.size * stage.scale) + "px sans-serif"
+                    ctx.font = Math.round(op.size * stage.fit) + "px sans-serif"
                     ctx.textBaseline = "top"
                     var lines = String(op.text).split("\n")
                     for (var l = 0; l < lines.length; l++)
-                      ctx.fillText(lines[l], op.x * stage.scale,
-                                   (op.y + l * op.size * 1.2) * stage.scale)
+                      ctx.fillText(lines[l], op.x * stage.fit,
+                                   (op.y + l * op.size * 1.2) * stage.fit)
                   }
                 }
                 stroke(overlay.live, root.inkColour, root.inkWidth)
@@ -289,7 +289,7 @@ Item {
               acceptedButtons: Qt.LeftButton
 
               function toPage(mx, my) {
-                return [mx / stage.scale, my / stage.scale]
+                return [mx / stage.fit, my / stage.fit]
               }
 
               onPressed: function (mouse) {
@@ -330,11 +330,11 @@ Item {
               property real pageX: 0
               property real pageY: 0
               visible: false
-              x: pageX * stage.scale
-              y: pageY * stage.scale
+              x: pageX * stage.fit
+              y: pageY * stage.fit
               width: Math.max(Style.space(120), stage.width * 0.3)
               font.family: root.fontFamily
-              font.pixelSize: Math.round(root.textSize * stage.scale)
+              font.pixelSize: Math.round(root.textSize * stage.fit)
               color: root.inkColour
               background: Rectangle { color: Qt.rgba(1, 1, 0.6, 0.4) }
               onAccepted: {
