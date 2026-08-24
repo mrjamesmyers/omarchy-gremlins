@@ -40,6 +40,24 @@ from forks for exactly this reason, and
 [Settings → Actions](https://github.com/mrjamesmyers/omarchy-gremlins/settings/actions)
 can additionally require approval before an outside contributor's workflow runs.
 
+### About the labels
+
+`validate.yml` needs `[self-hosted, omarchy]`, and `helper-tests.yml` needs
+`self-hosted`. The installer's default labels (`omarchy,arch`) satisfy both,
+because GitHub adds `self-hosted`, the OS and the architecture automatically.
+
+The commit that added `validate.yml` says the runner "carries no Linux/X64
+labels". The runner this script registers does carry them, and closing that gap
+is a trap worth naming: `config.sh --no-default-labels` drops **`self-hosted`
+along with them** — it is one set, added together only when the flag is absent
+(`ConfigurationManager.CreateNewAgent`). Passing it would stop both workflows
+matching this runner.
+
+It also buys nothing here. That label was chosen so nothing else in the org
+could schedule onto somebody's desktop, and a runner registered to a single
+repository — which is what this script does — cannot be reached by another
+repository at all. The isolation comes from the scope, not the label.
+
 ### If jobs still queue
 
 ```sh
