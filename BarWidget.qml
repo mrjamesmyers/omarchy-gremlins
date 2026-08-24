@@ -48,8 +48,11 @@ Item {
   function injectPanel() {
     var t = settingsLoader.item
     if (!t) return
-    if ("bar"        in t) t.bar        = root.bar
-    if ("settings"   in t) t.settings   = root.settings
+    // The Loader completes before the host injects `bar`, and Panel.bar is a
+    // QObject* which rejects undefined outright rather than ignoring it. Only
+    // assign what we actually have yet; onBarChanged calls us again later.
+    if (root.bar !== undefined && root.bar !== null && "bar" in t) t.bar = root.bar
+    if (root.settings !== undefined && root.settings !== null && "settings" in t) t.settings = root.settings
     if ("anchorItem" in t) t.anchorItem = anchorCell
     if ("hostWidget" in t) t.hostWidget = root
     if ("primary"    in t) t.primary    = root.ownsHang

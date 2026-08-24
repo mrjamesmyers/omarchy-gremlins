@@ -183,6 +183,11 @@ Panel {
       if (root.hostWidget && typeof root.hostWidget.trigger === "function")
         root.hostWidget.trigger()
     }
+    // Scriptable wallpaper control. Handy for demos and for anyone who would
+    // rather bind a scene to a key than open a panel.
+    function setWallpaper(name: string): void { root.persistSettings({ wallpaper: name }) }
+    function playScene(): void { root.playNow() }
+    function currentWallpaper(): string { return root.wallpaper }
   }
 
   KeyboardPanel {
