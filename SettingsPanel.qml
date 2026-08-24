@@ -219,9 +219,23 @@ Panel {
       onCloseRequested: root.close()
       onTabRequested: function (direction) { root.switchPanel(direction) }
 
+      // KeyboardPanel.fittedContentHeight already clamps the card to what fits
+      // on screen, so anything taller is CLIPPED, not scrolled - and on a box
+      // with a large spacing scale (Style.space multiplies by it) this panel is
+      // taller than 1080p on its own. Flickable makes that a scroll instead of
+      // a silent truncation, at any scale, and stays inert when it all fits.
+      Flickable {
+        id: flick
+        anchors.fill: parent
+        contentWidth: width
+        contentHeight: column.implicitHeight
+        interactive: contentHeight > height
+        boundsBehavior: Flickable.StopAtBounds
+        clip: true
+
       Column {
         id: column
-        anchors { left: parent.left; right: parent.right; top: parent.top }
+        width: flick.width
         spacing: Style.space(12)
 
         PanelHero {
@@ -292,7 +306,15 @@ Panel {
         // here is literally what the user will be looking at.
         Item {
           width: parent.width
-          height: root.wallpaper === "" ? 0 : Math.round(parent.width * 9 / 16)
+          // 16:9 of the panel width, but capped. Style.space() multiplies by the
+          // user's spacing scale, so on a box scaled ~3x the panel is ~1200px
+          // wide and an uncapped 16:9 preview is 670px tall on its own - enough
+          // to push the interval, fill and play controls off the bottom of the
+          // screen. It crops rather than letterboxes, so a short preview is
+          // still a fair likeness.
+          height: root.wallpaper === ""
+                  ? 0
+                  : Math.min(Math.round(parent.width * 9 / 16), Style.space(64))
           visible: root.wallpaper !== ""
           clip: true
 
@@ -405,6 +427,7 @@ Panel {
           font.pixelSize: Style.font.caption
           wrapMode: Text.WordWrap
         }
+      }
       }
     }
   }
