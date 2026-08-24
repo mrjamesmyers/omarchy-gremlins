@@ -148,8 +148,23 @@ jobs:
           for candidate in "${session_path:-}/shell" "${OMARCHY_PATH:-}/shell" \
                            /usr/share/omarchy/shell \
                            "$HOME/.local/share/omarchy/shell"; do
-            if [ "$candidate" != "/shell" ] && [ -d "$candidate" ]; then shell_dir="$candidate"; break; fi
+            [ "$candidate" = "/shell" ] && continue
+            if [ -d "$candidate" ]; then shell_dir="$candidate"; break; fi
+            echo "  tried $candidate - not a directory"
           done
+
+          # Last resort, and the only one that does not depend on guessing a
+          # layout: ask the package manager where omarchy actually put its shell.
+          if [ -z "$shell_dir" ] && command -v pacman >/dev/null 2>&1; then
+            packaged=$(pacman -Ql omarchy 2>/dev/null |
+              awk '{print $2}' | grep -m1 -E '/shell/$' || true)
+            if [ -n "$packaged" ] && [ -d "$packaged" ]; then
+              shell_dir="${packaged%/}"
+              echo "  found via pacman -Ql omarchy: $shell_dir"
+            else
+              echo "  pacman -Ql omarchy did not name a shell directory either"
+            fi
+          fi
 
           echo "lint=$lint"           >> "$GITHUB_OUTPUT"
           echo "shell_dir=$shell_dir" >> "$GITHUB_OUTPUT"
