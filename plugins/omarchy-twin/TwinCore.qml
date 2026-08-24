@@ -1,7 +1,6 @@
 // Twin - daemon owner and scan state.
 
 import QtQuick
-import Quickshell
 import Quickshell.Io
 
 Item {

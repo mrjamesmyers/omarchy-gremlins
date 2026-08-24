@@ -11,7 +11,6 @@
 // 0600 file or the environment.
 
 import QtQuick
-import Quickshell
 import Quickshell.Io
 
 Item {

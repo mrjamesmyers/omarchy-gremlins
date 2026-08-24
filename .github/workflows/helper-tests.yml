@@ -136,10 +136,19 @@ jobs:
           # qs.Commons and qs.Ui are Omarchy's own QML modules. Without the
           # shell directory on the import path every file "fails" on imports
           # that are perfectly valid inside the running shell.
+          # A live session records its OMARCHY_PATH in the systemd user
+          # environment, and that is where omarchy-restart-shell itself reads it
+          # from. The runner is a system service, so it needs XDG_RUNTIME_DIR
+          # pointed at the user bus before it can ask.
+          session_path=$(XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" \
+            systemctl --user show-environment 2>/dev/null |
+            sed -n 's/^OMARCHY_PATH=//p' | tail -n 1)
+
           shell_dir=""
-          for candidate in "${OMARCHY_PATH:-}/shell" /usr/share/omarchy/shell \
+          for candidate in "${session_path:-}/shell" "${OMARCHY_PATH:-}/shell" \
+                           /usr/share/omarchy/shell \
                            "$HOME/.local/share/omarchy/shell"; do
-            if [ -n "$candidate" ] && [ -d "$candidate" ]; then shell_dir="$candidate"; break; fi
+            if [ "$candidate" != "/shell" ] && [ -d "$candidate" ]; then shell_dir="$candidate"; break; fi
           done
 
           echo "lint=$lint"           >> "$GITHUB_OUTPUT"
@@ -172,8 +181,19 @@ jobs:
             echo "::error::qmllint reported syntax errors above"
             exit 1
           fi
-          warnings="$(grep -cE "warning:" "$report" || true)"
+          warnings="$(grep -ciE "^warning:" "$report" || true)"
           echo "no syntax errors. ${warnings} warning(s) - see the groups above."
+
+          # Without qs.Commons and qs.Ui on the import path every Omarchy type is
+          # unknown, so the pass degrades to a syntax check and says nothing about
+          # properties or types. That is worth knowing rather than reading as a
+          # clean bill of health, but it is not a reason to fail the build.
+          failed_imports="$(grep -ciE "Failed to import qs\." "$report" || true)"
+          if [ "$failed_imports" -gt 0 ]; then
+            echo "::warning::qs.Commons/qs.Ui did not resolve (${failed_imports} \
+            unresolved imports), so this was a syntax check only. Set OMARCHY_PATH \
+            for the runner to lint against real types."
+          fi
 
       - name: Say so if qmllint is missing
         if: steps.qt.outputs.lint == ''

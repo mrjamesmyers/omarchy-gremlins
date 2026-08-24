@@ -6,7 +6,6 @@
 // asked, so there is no sequence of clicks that leaves you with nothing.
 
 import QtQuick
-import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Ui

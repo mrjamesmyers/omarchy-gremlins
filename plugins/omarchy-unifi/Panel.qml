@@ -5,7 +5,6 @@
 // the gateway, the adopted devices, and who is on the network.
 
 import QtQuick
-import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Ui

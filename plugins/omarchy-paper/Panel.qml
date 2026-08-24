@@ -6,7 +6,6 @@
 // run lpadmin and does not ask for a password.
 
 import QtQuick
-import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
