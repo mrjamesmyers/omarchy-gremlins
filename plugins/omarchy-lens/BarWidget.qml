@@ -7,11 +7,9 @@
 
 import QtQuick
 import Quickshell
-import Quickshell.Io
 import Quickshell.Wayland
 import QtQuick.Window
 import qs.Commons
-import qs.Ui
 
 Item {
   id: root

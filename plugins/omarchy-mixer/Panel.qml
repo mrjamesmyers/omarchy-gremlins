@@ -6,7 +6,6 @@
 // playing to, which you can click to send it somewhere else.
 
 import QtQuick
-import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Ui

@@ -9,7 +9,6 @@
 // Hyprland cannot do is disabled and labelled, never shown as if it works.
 
 import QtQuick
-import Quickshell
 import Quickshell.Io
 
 Item {

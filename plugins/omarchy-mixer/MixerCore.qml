@@ -6,7 +6,6 @@
 // times a minute what a slider is set to.
 
 import QtQuick
-import Quickshell
 import Quickshell.Io
 
 Item {
